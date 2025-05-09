@@ -25,6 +25,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	let bindingFunctions = [];
 	let slots = [];
+	let componentSlots = [];
 	let styleElements = [];
 
 	let generatedSubComponent = false;
@@ -74,7 +75,9 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 			const attributes = Array.from(node.attributes);
 
 			if (node.tagName === 'SLOT') {
-				slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
+				if (!node.hasAttribute('component')) {
+					slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
+				}
 			} else if (node.tagName === 'STYLE') {
 				styleElements.push(node);
 				return { bindings: [], slots: [], styleElements };
@@ -174,16 +177,17 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
-	if (generatedSubComponent) return { bindings, slots, styleElements };
+	if (generatedSubComponent) return { bindings, slots, componentSlots, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
-		const { bindings: childBindings, slots: childSlots, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
+		const { bindings: childBindings, slots: childSlots = [], componentSlots: childComponentSlots = [], styleElements: childStyles = [] } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
 		bindings.push(...childBindings);
 		slots.push(...childSlots);
+		componentSlots.push(...childComponentSlots);
 		styleElements.push(...childStyles);
 	}
 
-	return { bindings, slots, styleElements };
+	return { bindings, slots, componentSlots, styleElements };
 };
 
 const createTwoWayBinding = (element, boundAttrName, sig) => {
@@ -329,7 +333,7 @@ const ifHandler = (node, bindingValues) => {
 		return convertToSignal(
 			conditionIndex !== null ? bindingValues[conditionIndex] : signal(true),
 			context);
-	}
+	};
 
 	// Process child nodes to identify branches
 	for (const childNode of childNodes) {
@@ -365,7 +369,7 @@ const ifHandler = (node, bindingValues) => {
 
 	// Return the branches
 	return branches;
-}
+};
 
 const resourceHandler = (node, bindingValues) => conditionalHandler(node, bindingValues, resourceBranchGeneration);
 
@@ -546,12 +550,13 @@ const component = (name, factory, bypass = {}) => {
 	let slots = bypass?.slots || [];
 
 	customElements.define(name, class extends HTMLElement {
-		_props = {};
-		_mountHooks = [];
-		_unmountHooks = [];
-		_content = null;
-		_templateRendererCalled = false;
-		_additionalContext = null;
+		#props = {};
+		#mountHooks = [];
+		#unmountHooks = [];
+		#content = null;
+		#templateRendererCalled = false;
+		#additionalContext = null;
+		#id = null;
 
 		constructor() {
 			instanceCount++;
@@ -565,27 +570,27 @@ const component = (name, factory, bypass = {}) => {
 		#prepareContent() {
 			Array.from(this.attributes).forEach(({ name, value }) => {
 				if (name === 'render' && value === '') return;
-				else if (!this._props.hasOwnProperty(name)) this.setAttribute(name, value === '' ? true : value);
+				else if (!this.#props.hasOwnProperty(name)) this.setAttribute(name, value === '' ? true : value);
 			});
 
-			for (const [key, value] of Object.entries(this._props)) {
+			for (const [key, value] of Object.entries(this.#props)) {
 				if (typeof value !== 'function' && !isSignal(value)) {
-					this._props[key] = signal(value);
+					this.#props[key] = signal(value);
 				}
 			}
 
 			const context = {
 				lifeCycle: {
-					onMount: (fn) => this._mountHooks.push(fn),
-					onUnmount: (fn) => this._unmountHooks.push(fn),
+					onMount: (fn) => this.#mountHooks.push(fn),
+					onUnmount: (fn) => this.#unmountHooks.push(fn),
 				},
-				html: (strings, ...bindingValues) => this.#templateRenderer(strings, bindingValues, this._additionalContext),
+				html: (strings, ...bindingValues) => this.#templateRenderer(strings, bindingValues, this.#additionalContext),
 				signal,
 				computed,
 				effect: this.#trackedCleanupEffect
 			};
 
-			const proxyProps = new Proxy(this._props, {
+			const proxyProps = new Proxy(this.#props, {
 				//list all props that are accessed to check if they are set in the custom element in the html page
 				get(target, prop) {
 					prop = prop.toLowerCase();
@@ -602,7 +607,7 @@ const component = (name, factory, bypass = {}) => {
 
 		#createTrackedEffect = (effectFn) => (...args) => {
 			const cleanup = effectFn(...args);
-			this._unmountHooks.push(cleanup);
+			this.#unmountHooks.push(cleanup);
 			return cleanup;
 		};
 
@@ -618,11 +623,11 @@ const component = (name, factory, bypass = {}) => {
 		});
 
 		#templateRenderer = (strings, bindingValues) => {
-			if (this._templateRendererCalled === true) {
+			if (this.#templateRendererCalled === true) {
 				console.error('html() can only be called once inside a component');
 				return;
 			}
-			this._templateRendererCalled = true;
+			this.#templateRendererCalled = true;
 
 			if (!template) {
 				this.#prepareTemplate(strings, bindingValues);
@@ -634,12 +639,12 @@ const component = (name, factory, bypass = {}) => {
 		#generateCopy = async (bindingValues) => {
 			const copy = template.cloneNode(true);
 
-			const cleanups = await applyBindings(bindings, bindingValues, copy, this._additionalContext, name);
-			this._unmountHooks.push(...cleanups);
+			const cleanups = await applyBindings(bindings, bindingValues, copy, this.#additionalContext, name);
+			this.#unmountHooks.push(...cleanups);
 
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
 
-			const plugs = {}
+			const plugs = {};
 
 			for (const child of Array.from(this.children)) {
 				const slotName = child.getAttribute('slot') || 'default';
@@ -662,9 +667,9 @@ const component = (name, factory, bypass = {}) => {
 			}
 
 
-			this._content = copy;
-			this.appendChild(this._content);
-			this._mountHooks.forEach(hook => hook());
+			this.#content = copy;
+			this.appendChild(this.#content);
+			this.#mountHooks.forEach(hook => hook());
 		};
 
 		//public and utility methods
@@ -693,7 +698,7 @@ const component = (name, factory, bypass = {}) => {
 		};
 
 		setContext(context) {
-			this._additionalContext = context;
+			this.#additionalContext = context;
 			this.#prepareContent();
 		}
 
@@ -707,38 +712,38 @@ const component = (name, factory, bypass = {}) => {
 			const type = isSignal(value) ? 'signal' : typeof value;
 
 			if (type === 'function') {
-				this._props[name] = value;
+				this.#props[name] = value;
 				super.setAttribute(name, 'functionAttribute');
 				return;
 			}
 
-			if (!this._props[name] && !bind) {
-				this._props[name] = signal(value);
-				effect(() => super.setAttribute(name, this._props[name].v));
+			if (!this.#props[name] && !bind) {
+				this.#props[name] = signal(value);
+				effect(() => super.setAttribute(name, this.#props[name].v));
 			}
 
 			if (type === 'signal') {
 				super.setAttribute(name, value.v);
-				if (!bind) this._props[name].v = value.v;
+				if (!bind) this.#props[name].v = value.v;
 				else {
-					this._props[name] = value;
-					effect(() => super.setAttribute(name, this._props[name].v));
+					this.#props[name] = value;
+					effect(() => super.setAttribute(name, this.#props[name].v));
 				};
 			} else {
 				super.setAttribute(name, value);
-				this._props[name].v = value;
+				this.#props[name].v = value;
 			}
 
-			//effect(() => super.setAttribute(name, this._props[name].v)); //possibly duplicated from when the attribute was set the previous time
+			//effect(() => super.setAttribute(name, this.#props[name].v)); //possibly duplicated from when the attribute was set the previous time
 		}
 
 		getAttribute(name, raw = false) {
-			if (raw) return this._props[name] ?? super.getAttribute(name);
-			else return this._props[name]?.v ?? super.getAttribute(name);
+			if (raw) return this.#props[name] ?? super.getAttribute(name);
+			else return this.#props[name]?.v ?? super.getAttribute(name);
 		}
 
 		connectedCallback() {
-			this._id = randomId();
+			this.#id = randomId();
 			this.style.display = 'contents';
 
 			if (this.getAttribute('render') === '') {
@@ -752,7 +757,7 @@ const component = (name, factory, bypass = {}) => {
 				styleElement.remove();
 				styleElement = null;
 			}
-			this._unmountHooks.forEach(hook => hook());
+			this.#unmountHooks.forEach(hook => hook());
 		}
 	});
 
