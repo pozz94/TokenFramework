@@ -1,8 +1,12 @@
-import { signal, computed, effect } from './signal.js';
-import { component } from './component.js';
+import { token, signal } from './token.js';
 import './my-test.js';
 
-component("my-counter", async ({ width = signal("150px"), prop2 = signal("Hello World"), html }) => {
+const testGlobalSignal = signal('Hello World');
+const testGlobalChange = () => {
+	testGlobalSignal.v = testGlobalSignal.v === 'Hello World' ? 'Goodbye World' : 'Hello World';
+};
+
+token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") }) => {
 	const count = signal(0);
 	const derived = computed(() => count.v * 2);
 	const color = signal('black');
@@ -20,17 +24,16 @@ component("my-counter", async ({ width = signal("150px"), prop2 = signal("Hello 
 		console.log('input:', input.v);
 	});
 
+	const handler = async () => {
+		const data = await fetch('https://jsonplaceholder.typicode.com/todos/1');
+		const json = await data.json();
+		input.v = json.title;
+	}
+
 	const unit = 'px';
 
 	html`
-		<style>
-			button { margin: 1rem; }
-
-			my-counter {
-				button { background-color: lightblue; }
-			}
-		</style>
-
+		<slot name="testslot"></slot>
 		<div style="color: ${color}; width: ${width}; background-color: lightgray; font-size: 20${unit}">current count: ${count}</div>
 		<div style="color: ${color}">doubled count: ${derived}</div>
 		<div style="color: ${color}">current count: ${count}; doubled count: ${derived}</div>
@@ -39,14 +42,22 @@ component("my-counter", async ({ width = signal("150px"), prop2 = signal("Hello 
 		<button onclick=${decrement}> - </button>
 		<button onclick=${changeColor}>Change color</button>
 		<button onclick=${() => width.v = (parseInt(width.v) + 20) + "px"}>Increase width</button>
+		
+		<button onclick=${testGlobalChange}>Change global signal</button>
+		<h1>${testGlobalSignal}</h1>
 
 		<p width=${width}>${prop2}</p>
 
-		<input type="text" :value=${input}></input>
+		<button onclick=${handler}>Fetch</button>
+
+		<input type="text" :value=${input}>
 		<p>${input}</p>
 
-		<my-test func=${decrement} prop1=${input} :prop2=${width}></my-test>
+		<my-test slot="testslot" func=${decrement} prop1=${input} :prop2=${width}></my-test>
 		
-		<slot name="slot2"></slot>
-		<slot name="slot1"></slot>`;
+		<style>
+			button { margin: 1rem; }
+
+			my-counter { button { background-color: lightblue; }}
+		</style>`;
 });

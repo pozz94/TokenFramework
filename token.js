@@ -1,4 +1,4 @@
-import { UIeffect, effect, signal, bound, computed } from './signal.js';
+import { UIeffect, effect, signal, computed } from './signal.js';
 
 const isSignal = (obj) => typeof obj === 'object' && obj !== null && 'v' in obj;
 const isWebComponent = (element) => element instanceof HTMLElement && element.tagName.includes('-');
@@ -78,7 +78,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 							if (isSignal(bindingValues[index])) {
 								bindingValues[index].v = node;
 							} else {
-								console.error('to save a reference to the element, a signal must be passed as an bindingValueument');
+								console.error('to save a reference to the element, a signal must be passed as an argument');
 							}
 							node.removeAttribute(name);
 						});
@@ -184,7 +184,7 @@ const applyBindings = (bindings, bindingValues, origin) => {
 							}));
 						}
 						await Promise.all(bindingPromises);
-						element.setAttribute('bindings', 'done');
+						element.setAttribute('render', 'now');
 					} else if (attempts < 10) queueMicrotask(() => tryApplyBinding(attempts + 1));
 					else console.error(`Failed to apply binding on ${element.tagName}`);
 				};
@@ -262,34 +262,55 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 	return template.content;
 };
 
-const registeredComponentList = new Set();
-
-//testing batches:
 // Add at the top of component.js
-const BATCH_SIZE = 5; // Number of methods to process in each batch
-const BATCH_DELAY = 16; // Milliseconds between batches (roughly 1 frame)
+const BATCH_SIZE = 50; // Number of components to process per frame
 let pendingRenders = new Set();
-let isProcessingBatch = false;
+let rafScheduled = false;
+let lastFrameTime = 0;
+const TARGET_FPS = 60;
+const FRAME_BUDGET = 1000 / TARGET_FPS; // ~16.67ms for 60fps
 
-const processBatch = () => {
-    if (isProcessingBatch || pendingRenders.size === 0) return;
-    
-    isProcessingBatch = true;
-    const currentBatch = Array.from(pendingRenders).slice(0, BATCH_SIZE);
-    
-    // Process current batch
-    currentBatch.forEach(renderFn => {
-        pendingRenders.delete(renderFn);
-        renderFn();
-    });
-    
-    isProcessingBatch = false;
-    
-    // If there are more renders pending, schedule next batch
-    if (pendingRenders.size > 0) {
-        setTimeout(processBatch, BATCH_DELAY);
-    }
+const processBatch = (timestamp) => {
+	// Reset RAF scheduled flag
+	rafScheduled = false;
+
+	// Calculate time since last frame
+	const timeSinceLastFrame = timestamp - lastFrameTime;
+
+	// If we're running faster than our target FPS, schedule next frame
+	if (timeSinceLastFrame < FRAME_BUDGET) {
+		scheduleNextBatch();
+		return;
+	}
+
+	// Update last frame time
+	lastFrameTime = timestamp;
+
+	// Process a batch
+	if (pendingRenders.size > 0) {
+		const currentBatch = Array.from(pendingRenders).slice(0, BATCH_SIZE);
+
+		// Process current batch
+		currentBatch.forEach(renderFn => {
+			pendingRenders.delete(renderFn);
+			renderFn();
+		});
+
+		// If there are still items to process, schedule next frame
+		if (pendingRenders.size > 0) {
+			scheduleNextBatch();
+		}
+	}
 };
+
+const scheduleNextBatch = () => {
+	if (!rafScheduled) {
+		rafScheduled = true;
+		requestAnimationFrame(processBatch);
+	}
+};
+
+const registeredComponentList = new Set();
 
 const component = (name, factory) => {
 	if (registeredComponentList.has(name)) {
@@ -301,9 +322,8 @@ const component = (name, factory) => {
 
 	let template = null;
 	let bindings = [];
-	let slots = {};
-	let plugs = {};
-	let id = '';
+	let slots = [];
+	let plugs = [];
 
 	customElements.define(name, class extends HTMLElement {
 		_props = {};
@@ -311,38 +331,51 @@ const component = (name, factory) => {
 		_unmountHooks = [];
 		_iterators = {}; //iterator object, contains all iterators to be used in list rendering
 		_content = null;
+		_templateRendererCalled = false;
 
 		constructor() {
+			//if factory is async, throw error
+			if (factory.constructor.name === "AsyncFunction") {
+				throw new Error('Factory function inside token() cannot be async');
+			}
 			super();
 			this.id = Math.random().toString(36).substring(7);
-			console.time(`${name} constructor ${this.id}`);
+			console.time(`${name} render ${this.id}`);
 			this.style.display = 'contents';
 			//this.#initializeProps();
-			if (this.getAttribute('bindings') === 'done') {
-				this.#prepareContent();
+			if (this.getAttribute('render') === 'now') {
+				this.prepareContent();
 			}
 		}
 
-		#prepareContent() {
+		prepareContent() {
 			Array.from(this.attributes).forEach(({ name, value }) => {
-				if (name === 'bindings' && value === 'done') {
+				if (name === 'render' && value === 'now') {
 					return;
 				} else this.setAttribute(name, value);
 			});
 
-			const props = {
-				...this._props,
-				onMount: (fn) => this._mountHooks.push(fn),
-				onUnmount: (fn) => this._unmountHooks.push(fn),
-				html: this.#templateRenderer,
-				i: this._iterators,
-			};
-
-			for (const [key, value] of Object.entries(props)) {
+			for (const [key, value] of Object.entries(this._props)) {
 				if (typeof value !== 'function' && !isSignal(value)) {
-					props[key] = signal(value);
+					this._props[key] = signal(value);
 				}
 			}
+
+			const props = {
+				...this._props,
+			};
+
+			const scope = {
+				lifeCycle: {
+					onMount: (fn) => this._mountHooks.push(fn),
+					onUnmount: (fn) => this._unmountHooks.push(fn),
+				},
+				html: this.templateRenderer,
+				i: this._iterators,
+				signal,
+				computed,
+				effect,
+			};
 
 			const proxyProps = new Proxy(props, {
 				//list all props that are accessed to check if they are set in the custom element in the html page
@@ -354,10 +387,26 @@ const component = (name, factory) => {
 					return Reflect.get(...arguments);
 				}
 			});
-			factory(proxyProps);
+
+			const scopedFactory = () => {
+				Object.assign(globalThis, scope);
+				try {
+					factory(proxyProps, scope);
+				} finally {
+					["signal", "computed", "effect", "html", "i", "lifecycle"].forEach(key => { delete globalThis[key]; });
+				}
+			};
+
+			scopedFactory();
 		}
 
-		#templateRenderer = (strings, ...bindingValues) => {
+		templateRenderer = (strings, ...bindingValues) => {
+			if (this._templateRendererCalled === true) {
+				console.error('html() can only be called once inside a component');
+				return;
+			}
+			this._templateRendererCalled = true;
+
 			if (!template) {
 				console.time(`${name} createTemplateFromLiteral ${this.id}`);
 				this.#prepareTemplate(strings, bindingValues);
@@ -372,8 +421,17 @@ const component = (name, factory) => {
 		#generateCopy = (bindingValues) => {
 			const copy = template.cloneNode(true);
 
-			//the code from here
 			applyBindings(bindings, bindingValues, copy);
+
+			console.log('plugs:', plugs);
+
+			const plugElementsArray = plugs.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]);
+			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
+
+			for (const [slotName, plugElement] of plugElementsArray) {
+				slotElements[slotName].style.display = 'contents';
+				slotElements[slotName].appendChild(plugElement);
+			}
 
 			for (const child of Array.from(this.children)) {
 				const slotName = child.getAttribute('slot') || 'default';
@@ -381,16 +439,15 @@ const component = (name, factory) => {
 					console.warn(`No matching slot "${slotName}" found for:`, child);
 					child.remove();
 				} else {
-					const slotElement = getNodeAtIndex(slots[slotName], copy);
-					slotElement.style.display = 'contents';
-					slotElement.appendChild(child);
+					slotElements[slotName].style.display = 'contents';
+					slotElements[slotName].appendChild(child);
 				}
 			};
 
 			this._content = copy;
 			this.appendChild(this._content);
 			this._mountHooks.forEach(hook => hook());
-			console.timeEnd(`${name} constructor ${this.id}`);
+			console.timeEnd(`${name} render ${this.id}`);
 		};
 
 		//public and utility methods
@@ -400,19 +457,13 @@ const component = (name, factory) => {
 			const { bindings: foundBindings, slots: foundSlots, plugs: foundPlugs } = findTemplateBindings(template, bindingValues);
 
 			bindings = foundBindings;
-			slots = Object.fromEntries(foundSlots);
-			plugs = Object.fromEntries(foundPlugs);
+			slots = foundSlots;
+			plugs = foundPlugs;
 		}
 
 		setAttribute(name, value, bind = false) {
-			if (name === 'bindings' && value === 'done') {
-				//this.#prepareContent();
-				//this._props[name] = signal(value);
-				//return;
-
-				// Queue the render instead of immediate execution
-				pendingRenders.add(()=>this.#prepareContent());
-				queueMicrotask(processBatch);
+			if (name === 'render' && value === 'now') {
+				this.prepareContent();
 				this._props[name] = signal(value);
 				return;
 			}
@@ -436,6 +487,8 @@ const component = (name, factory) => {
 				super.setAttribute(name, value);
 				this._props[name].v = value;
 			}
+
+			effect(() => super.setAttribute(name, this._props[name].v)); //possibly duplicated from when the attribute was set the previous time
 		}
 
 		connectedCallback() {
@@ -447,4 +500,10 @@ const component = (name, factory) => {
 	});
 };
 
-export { component };
+export {
+	component as default,
+	component as token,
+	signal,
+	computed,
+	effect,
+};

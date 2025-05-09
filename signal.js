@@ -84,6 +84,16 @@ function computed(computeFn) {
 }
 
 // Effect Implementation
+//jsdoc warning that effect must be disposed of after use outside components
+
+/**
+ * @param {Function} fn - function to be executed as an effect
+ * @returns {Function} cleanup function to remove all dependencies and subscribers from the effect
+ * @description
+ * Effect is a function that takes a function as an argument and returns a cleanup function.
+ * The cleanup function is used to remove all dependencies and subscribers from the effect.
+ * Effects must be disposed of after use outside components using the cleanup function.
+ */
 function effect(fn) {
 	const effectFn = () => {
 		cleanupDependencies(effectFn);
