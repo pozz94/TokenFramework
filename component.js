@@ -18,13 +18,39 @@ function sanitize(string) {
     return string.replace(reg, (match) => (map[match]));
 }
 
-const ifStringSanitize = (value) => typeof value === 'string' ? sanitize(value) : value;
+const ifStringSanitize = (value) => (typeof value === 'string' ? sanitize(value) : value) ?? '';
 
+const parseTextNodes = (node, args) => {
+    if (node.nodeType === Node.TEXT_NODE) { // handle text nodes
+        const originalValue = `${node.nodeValue}`;
+        const matches = [...originalValue.matchAll(partialReplacementPlaceholder)];
+        if (matches.length) {
+            UIeffect(() => {
+                //console.log('effect on text node:', originalValue);
+                //console.log('originalValue:', originalValue);
+                let newValue = originalValue;
+                for (const match of matches) {
+                    const index = parseInt(match[1], 10);
+                    const arg = args[index];
+                    const replacement = isSignal(arg) ? arg.v : arg;
+                    //console.log('replacement:', arg);
+                    newValue = originalValue.replace(`'{{--${index}--}}'`, ifStringSanitize(replacement));
+                }
+                node.nodeValue = newValue;
+            });
+        }
+    } else {
+        node.childNodes.forEach(child => parseTextNodes(child, args));
+    }
+};
 
 const parseAttributes = (element, args) => {
     const attributes = Array.from(element.attributes);
 
     attributes.forEach(({ name, value }) => {
+        const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
+        const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
+
         if (name.startsWith('on')) { // handle event attributes
             const match = value.match(fullReplacementPlaceholder);
             if (match) {
@@ -61,16 +87,16 @@ const parseAttributes = (element, args) => {
                 element.removeAttribute(name);
             }
         } else {
-            const originalValue = `${value}`;
-            const matches = [...originalValue.matchAll(partialReplacementPlaceholder)];
-            if (matches.length) { // handle partial replacement
+            if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
+                const { parts, indices } = splitTemplate(value, args);
+                const expressions = indices.map(index => args[index]);
+                console.log('expressions:', expressions);
                 UIeffect(() => {
-                    let newValue = originalValue;
-                    for (const match of matches) {
-                        const index = parseInt(match[1], 10);
-                        const arg = args[index];
-                        const replacement = isSignal(arg) ? arg.v : arg;
-                        newValue = originalValue.replace(`'{{--${index}--}}'`, ifStringSanitize(replacement));
+                    let newValue = '';
+                    let index = 0;
+                    for (const part of parts) {
+                        newValue += part + ifStringSanitize(expressions[index]?.v) ?? '';
+                        index++;
                     }
                     element.setAttribute(name, newValue);
                 });
@@ -82,10 +108,74 @@ const parseAttributes = (element, args) => {
                     const replacement = isSignal(arg) ? arg.v : arg;
                     element.setAttribute(name, ifStringSanitize(replacement));
                 });
+            } else {
+                element.setAttribute(name, value);
             }
         }
     });
 };
+
+//function splitTemplate(str, args) {
+//    const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
+//    const parts = [];
+//    const indices = [];
+//    let lastIndex = 0;
+//    const matches = [...str.matchAll(partialReplacementPlaceholder)];
+//
+//    for (const match of matches) {
+//        parts.push(str.slice(lastIndex, match.index));
+//        indices.push(parseInt(match[1], 10));
+//        lastIndex = match.index + match[0].length;
+//    }
+//    parts.push(str.slice(lastIndex));
+//
+//    return { parts, indices };
+//}
+
+function splitTemplate(str, args, element) {
+    const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
+    const parts = [];
+    const indices = [];
+    let lastIndex = 0;
+    const matches = [...str.matchAll(partialReplacementPlaceholder)];
+    let temp = '';
+    let notSignals = {};
+
+    for (const match of matches) {
+        const currentPart = str.slice(lastIndex, match.index);
+        const index = parseInt(match[1], 10);
+        const arg = args[index];
+
+        if (!isSignal(arg)) {
+            // If not a signal, combine the arg with the next part
+            notSignals[match[0]] = arg;
+
+            temp += currentPart + arg;
+        } else {
+            // If it is a signal, keep them separate
+            parts.push(temp + currentPart);
+            indices.push(index);
+            temp = '';
+        }
+
+        if (Object.keys(notSignals).length) {
+            console.warn(
+                str,
+                '\nOne or more of the arguments here are not signals, if you expect all of them to change reactively, make sure they are signals',
+                '\nRemember: those that are not signals will never update. Here are the non-signal values:\n',
+                notSignals
+            );
+        }
+
+        lastIndex = match.index + match[0].length;
+    }
+    parts.push(temp + str.slice(lastIndex));
+
+    console.log('parts:', parts);
+    console.log('indices:', indices);
+
+    return { parts, indices };
+}
 
 const createTwoWayBinding = (element, boundAttrName, sig) => {
     // Handle attribute changes
@@ -98,30 +188,6 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
     });
     // Initial value
     element.setAttribute(boundAttrName, sig.v);
-};
-
-const parseTextNodes = (node, args) => {
-    if (node.nodeType === Node.TEXT_NODE) { // handle text nodes
-        const originalValue = `${node.nodeValue}`;
-        const matches = [...originalValue.matchAll(partialReplacementPlaceholder)];
-        if (matches.length) {
-            UIeffect(() => {
-                //console.log('effect on text node:', originalValue);
-                //console.log('originalValue:', originalValue);
-                let newValue = originalValue;
-                for (const match of matches) {
-                    const index = parseInt(match[1], 10);
-                    const arg = args[index];
-                    const replacement = isSignal(arg) ? arg.v : arg;
-                    //console.log('replacement:', arg);
-                    newValue = originalValue.replace(`'{{--${index}--}}'`, ifStringSanitize(replacement));
-                }
-                node.nodeValue = newValue;
-            });
-        }
-    } else {
-        node.childNodes.forEach(child => parseTextNodes(child, args));
-    }
 };
 
 function parseElement(node, args) {
@@ -166,10 +232,10 @@ const component = (name, factory) => {
     customElements.define(name, class extends HTMLElement {
         // Use a Symbol to store the actual observed attributes
         static [Symbol.for('observedAttributes')] = new Set();
-        
+
         // Return array of all attribute names we want to observe
-        static get observedAttributes() { 
-            return Array.from(this[Symbol.for('observedAttributes')]); 
+        static get observedAttributes() {
+            return Array.from(this[Symbol.for('observedAttributes')]);
         }
 
         constructor() {
@@ -198,7 +264,7 @@ const component = (name, factory) => {
             //console.log(this.attributes)
             Array.from(this.attributes).forEach(attr => {
                 this._props[attr.name] = signal(attr.value);
-                console.log('signal:', this._props[attr.name]);
+                //console.log('signal:', this._props[attr.name]);
                 effect(() => {
                     console.log('effect on custom element attribute:', attr.name);
                     this.setAttribute(attr.name, this._props[attr.name].v)
@@ -206,21 +272,24 @@ const component = (name, factory) => {
             });
             //UIeffect(() => console.log(Object.fromEntries(Object.entries(this._props).map(([k, v]) => [k, v.v]))))
 
+            const handler = (strings, ...args) => {
+                const fragment = parseTemplate(strings, ...args);
+                // Handle styles
+                fragment.querySelectorAll('style[scoped]').forEach(style => {
+                    this.shadowRoot.appendChild(style.cloneNode(true));
+                });
+
+                this.shadowRoot.appendChild(fragment);
+            };
+
             const props = {
                 ...this._props,
                 mounthook: (fn) => this._mountHooks.push(fn),
                 updatehook: (fn) => this._updateHooks.push(fn),
-                html: (strings, ...args) => parseTemplate(strings, ...args)
+                html: handler,
             };
 
-            const fragment = factory(props);
-
-            // Handle styles
-            fragment.querySelectorAll('style[scoped]').forEach(style => {
-                this.shadowRoot.appendChild(style.cloneNode(true));
-            });
-
-            this.shadowRoot.appendChild(fragment);
+            factory(props);
 
             // Handle slots
             const slotContent = this.querySelectorAll('[slot]');
