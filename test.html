@@ -10,34 +10,37 @@
     </script>
     <style>
         div { 
-            background: #f0f0f0; 
-            padding: 1rem;
+            background: #f0f0f0;
+        }
+        button{
+            color: teal;
         }
     </style>
 </head>
 
 <body>
-    <my-counter width="150px" prop2="prop2">
-        <div slot="slot1">stuff that goes in the first slot <span>a span in the first slot</span></div>
-        <div slot="slot2">stuff that goes in the second slot <span>a span in the second slot</span></div>
-    </my-counter>
 
     <my-counter width="150px" prop2="prop2">
         <div slot="slot1">stuff that goes in the first slot <span>a span in the first slot</span></div>
         <div slot="slot2">stuff that goes in the second slot <span>a span in the second slot</span></div>
     </my-counter>
 
-    <script>
-        // Get reference to the component
-        const counter = document.querySelectorAll('my-counter')[0];
-        
-        // Test attribute changes
-        setTimeout(() => {
-            console.log('Changing attributes');
-            counter.setAttribute('width', '200px');
-            counter.setAttribute('prop2', 'Changed prop2');
-        }, 2000);
-    </script>
+    <my-counter width="150px" prop2="prop2">
+        <div slot="slot1">stuff that goes in the first slot <span>a span in the first slot</span></div>
+        <div slot="slot2">stuff that goes in the second slot <span>a span in the second slot</span></div>
+    </my-counter>
+
+    <button onclick="(()=>document.querySelectorAll('my-counter')[0].setAttribute('width', '500px'))()">test</button>
+    <button>test</button>
+    <style>
+        button {
+            color: red;
+        }
+    </style>
+    <button>test</button>
+    <button>test</button>
+
+
 </body>
 
 </html>
