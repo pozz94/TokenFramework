@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script>
+        import { signal, computed, effect } from './signal.js';
+        import { component } from './component.js';
+
+        component("my-counter", (props)=>{
+            const {prop1, prop2, mounthook, updatehook, html} = props
+            const count = signal(0);
+            const derived = computed(() => count.value * 2);
+
+            effect(() => {
+                console.log('Count:', count.value);
+            });
+
+            mounthook(() => {
+                console.log('Component mounted');
+            });
+
+			updatehook(() => {
+                console.log('Component updated');
+            });
+
+            const color = signal('black');
+
+            const changeColor = () => {
+                color.value = color.value === 'black' ? 'red' : 'black';
+            };
+
+            return html`
+                <style scoped>
+                    /* Scoped styles */
+                    button { margin: 0.5rem; }
+                </style>
+                <style>
+                    /* Global styles */
+                    div { 
+						background: #f0f0f0; 
+						padding: 1rem;
+					}
+                </style>
+
+                <div style="color: ${color.value}">current count: ${count.value}</div>
+                <button onclick=${()=>count.value++}>+</button>
+                <button onclick=${changeColor}>Change color</button>
+                <p width=${prop2}>${prop1}</p>
+                <slot name="slot1"></slot>
+                <slot name="slot2"></slot>`;
+        });
+    </script>
+</head>
+
+<body>
+    <my-counter>
+        <slot name="slot1">stuff thet goes in the first slot <span>a span in the first slot</span></slot>
+        <slot name="slot2">stuff thet goes in the second slot <span>a span in the second slot</span></slot>
+    </my-counter>
+</body>
+
+</html>
