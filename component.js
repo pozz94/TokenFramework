@@ -1,4 +1,4 @@
-import { UIeffect } from './signal.js';
+import { UIeffect, effect, signal } from './signal.js';
 
 const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
 const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
@@ -140,6 +140,8 @@ function parseElement(node, args) {
 }
 
 const parseTemplate = (strings, ...args) => {
+    //perfomance test
+    console.time('parseTemplate');
     //console.log('parseTemplate:', args);
     const templateString = strings.reduce((acc, str, i) =>
         acc + str + (i < args.length ? `'{{--${i}--}}'` : ''), '');
@@ -156,20 +158,54 @@ const parseTemplate = (strings, ...args) => {
     });
 
     parseElement(fragment, args);
+    console.timeEnd('parseTemplate');
     return fragment;
 };
 
 const component = (name, factory) => {
     customElements.define(name, class extends HTMLElement {
+        // Use a Symbol to store the actual observed attributes
+        static [Symbol.for('observedAttributes')] = new Set();
+        
+        // Return array of all attribute names we want to observe
+        static get observedAttributes() { 
+            return Array.from(this[Symbol.for('observedAttributes')]); 
+        }
+
         constructor() {
             super();
             this._props = {};
             this._mountHooks = [];
             this._updateHooks = [];
             this.attachShadow({ mode: 'open' });
+            console.log('observedAttributes:', this.attributes);
+            // Store initial attributes
+            Array.from(this.attributes).forEach(attr => {
+                this.constructor[Symbol.for('observedAttributes')].add(attr.name);
+            });
+        }
+
+        attributeChangedCallback(name, oldValue, newValue) {
+            console.log('attributeChangedCallback:', name, oldValue, newValue);
+            const observedAttrs = this.constructor[Symbol.for('observedAttributes')];
+            if (observedAttrs.has(name) && this._props[name]) {
+                this._props[name].v = newValue;
+                this._updateHooks.forEach(hook => hook());
+            }
         }
 
         connectedCallback() {
+            //console.log(this.attributes)
+            Array.from(this.attributes).forEach(attr => {
+                this._props[attr.name] = signal(attr.value);
+                console.log('signal:', this._props[attr.name]);
+                effect(() => {
+                    console.log('effect on custom element attribute:', attr.name);
+                    this.setAttribute(attr.name, this._props[attr.name].v)
+                });
+            });
+            //UIeffect(() => console.log(Object.fromEntries(Object.entries(this._props).map(([k, v]) => [k, v.v]))))
+
             const props = {
                 ...this._props,
                 mounthook: (fn) => this._mountHooks.push(fn),

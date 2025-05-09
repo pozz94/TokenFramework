@@ -2,7 +2,7 @@ import { signal, computed, effect } from './signal.js';
 import { component } from './component.js';
 
 export default component("my-counter", (props) => {
-	let { prop1 = "100px", prop2 = "Hello World", html } = props;
+	let { width = "100px", prop2 = "Hello World", html } = props;
 
 	const count = signal(0);
 	const derived = computed(() => count.v * 2);
@@ -16,6 +16,8 @@ export default component("my-counter", (props) => {
 	const changeColor = () => {
 		color.v = color.v === 'black' ? 'red' : 'black';
 	};
+
+	
 
 	effect(() => {
 		console.log('input:', input.v);
@@ -33,8 +35,9 @@ export default component("my-counter", (props) => {
 		<button onclick=${() => count.v++}> + </button>
 		<button onclick=${decrement}> - </button>
 		<button onclick=${changeColor}>Change color</button>
+		<button onclick=${() => width.v=(parseInt(width.v)+20)+"px"}>Increase width</button>
 
-		<p width=${prop1}>${prop2}</p>
+		<p width=${width}>${prop2}</p>
 
 		<input type="text" :value=${input}></input>
 		<p>${input}</p>
