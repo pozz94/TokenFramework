@@ -1,11 +1,13 @@
 import { signal, computed, effect } from './signal.js';
 import { component } from './component.js';
 
-export default component("my-counter", ({ width = "150px", prop2 = "Hello World", html }) => {
+export default component("my-counter", ({ width = "150px", prop2 = "Hello World", html, i }) => {
 	const count = signal(0);
 	const derived = computed(() => count.v * 2);
 	const color = signal('black');
 	const input = signal('Hello World');
+
+
 
 	const decrement = () => {
 		count.v--;
@@ -23,6 +25,7 @@ export default component("my-counter", ({ width = "150px", prop2 = "Hello World"
 
 	// Add this before returning the html template:
 	html`
+		<slot name="slot2"></slot>
 		<style scoped>
 			button { margin: 0.5rem; }
 		</style>
@@ -39,7 +42,6 @@ export default component("my-counter", ({ width = "150px", prop2 = "Hello World"
 
 		<input type="text" :value=${input}></input>
 		<p>${input}</p>
-		
-		<slot name="slot2"></slot>
+
 		<slot name="slot1"></slot>`;
 });

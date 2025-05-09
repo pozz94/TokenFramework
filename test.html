@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
     <script type="module">
-        import MyCounter from './my-counter.js';
+        import './my-counter.js';
     </script>
     <style>
         div { 
@@ -26,6 +26,18 @@
         <div slot="slot1">stuff that goes in the first slot <span>a span in the first slot</span></div>
         <div slot="slot2">stuff that goes in the second slot <span>a span in the second slot</span></div>
     </my-counter>
+
+    <script>
+        // Get reference to the component
+        const counter = document.querySelectorAll('my-counter')[0];
+        
+        // Test attribute changes
+        setTimeout(() => {
+            console.log('Changing attributes');
+            counter.setAttribute('width', '200px');
+            counter.setAttribute('prop2', 'Changed prop2');
+        }, 2000);
+    </script>
 </body>
 
 </html>
