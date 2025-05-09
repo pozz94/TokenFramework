@@ -391,7 +391,21 @@ function computed(computeFn) {
 		}
 	});
 
-	return { get v() { return sourceSignal ? sourceSignal.v : s.v }, set v(newValue) { if (sourceSignal) sourceSignal.v = newValue } };
+	//return { get v() { return sourceSignal ? sourceSignal.v : s.v }, set v(newValue) { if (sourceSignal) sourceSignal.v = newValue } };
+	return new Proxy(s, {
+		get(target, prop) {
+			return sourceSignal ? sourceSignal[prop] : target[prop];
+		},
+		set(target, prop, value) {
+			if (sourceSignal) {
+				sourceSignal[prop] = value;
+			} else {
+				console.warn('Cannot set value on computed signal. Use the original signal instead.');
+				return false;
+			}
+			return true;
+		}
+	});
 }
 
 const defaultFetcher = async (input) => {

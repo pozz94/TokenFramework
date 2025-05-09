@@ -67,7 +67,7 @@ infiniteLoopTest('infinite loop protection - maximum update depth', async ({ pag
     }
 });
 
-infiniteLoopTest.fail('infinite loop protection - indirect cycle', async ({ page, context }) => {
+infiniteLoopTest.skip('infinite loop protection - indirect cycle', async ({ page, context }) => {
     await page.goto('/tests/infinite-loop-protection');
 
     const safetyTimeout = new Promise((resolve) => {

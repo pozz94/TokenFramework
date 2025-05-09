@@ -25,6 +25,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	let bindingFunctions = [];
 	let slots = [];
+	let componentSlots = [];
 	let styleElements = [];
 
 	let generatedSubComponent = false;
@@ -74,7 +75,9 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 			const attributes = Array.from(node.attributes);
 
 			if (node.tagName === 'SLOT') {
-				slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
+				if (!node.hasAttribute('component')) {
+					slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
+				}
 			} else if (node.tagName === 'STYLE') {
 				styleElements.push(node);
 				return { bindings: [], slots: [], styleElements };
@@ -174,16 +177,17 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
-	if (generatedSubComponent) return { bindings, slots, styleElements };
+	if (generatedSubComponent) return { bindings, slots, componentSlots, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
-		const { bindings: childBindings, slots: childSlots, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
+		const { bindings: childBindings, slots: childSlots = [], componentSlots: childComponentSlots = [], styleElements: childStyles = [] } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
 		bindings.push(...childBindings);
 		slots.push(...childSlots);
+		componentSlots.push(...childComponentSlots);
 		styleElements.push(...childStyles);
 	}
 
-	return { bindings, slots, styleElements };
+	return { bindings, slots, componentSlots, styleElements };
 };
 
 const createTwoWayBinding = (element, boundAttrName, sig) => {
@@ -329,7 +333,7 @@ const ifHandler = (node, bindingValues) => {
 		return convertToSignal(
 			conditionIndex !== null ? bindingValues[conditionIndex] : signal(true),
 			context);
-	}
+	};
 
 	// Process child nodes to identify branches
 	for (const childNode of childNodes) {
@@ -365,7 +369,7 @@ const ifHandler = (node, bindingValues) => {
 
 	// Return the branches
 	return branches;
-}
+};
 
 const resourceHandler = (node, bindingValues) => conditionalHandler(node, bindingValues, resourceBranchGeneration);
 
@@ -639,7 +643,7 @@ const component = (name, factory, bypass = {}) => {
 
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
 
-			const plugs = {}
+			const plugs = {};
 
 			for (const child of Array.from(this.children)) {
 				const slotName = child.getAttribute('slot') || 'default';
