@@ -1,4 +1,4 @@
-import token from './framework/token.js';
+import token, {effect} from './framework/token.js';
 
 token("effect-test", () => {
     const testSignal = signal(0);
@@ -12,22 +12,28 @@ token("effect-test", () => {
 
     const active = signal(false);
 
-    setInterval(() => {
-        if (active.v) testSignal.v++;
-        if (active.v) signalChanges.v++;
-        setTimeout(() => {
-            if (active.v) testSignal.v++;
-            if (active.v) signalChanges.v++;
-        }, 1);
-        setTimeout(() => {
-            if (active.v) testSignal.v++;
-            if (active.v) signalChanges.v++;
-        }, 2);
-        setTimeout(() => {
-            if (active.v) testSignal.v++;
-            if (active.v) signalChanges.v++;
-        }, 3);
-    }, 4);
+    let interval;
+
+    effect(() => {
+        if (active.v)
+            effect.untrack(() => interval = setInterval(() => {
+                if (active.v) testSignal.v++;
+                if (active.v) signalChanges.v++;
+                setTimeout(() => {
+                    if (active.v) testSignal.v++;
+                    if (active.v) signalChanges.v++;
+                }, 1);
+                setTimeout(() => {
+                    if (active.v) testSignal.v++;
+                    if (active.v) signalChanges.v++;
+                }, 2);
+                setTimeout(() => {
+                    if (active.v) testSignal.v++;
+                    if (active.v) signalChanges.v++;
+                }, 3);
+            }, 4));
+        else clearInterval(interval);
+    });
 
     effect.throttled(() => {
         testThrottled.v = testSignal.v;

@@ -1,5 +1,5 @@
-import { token, signal } from './framework/token.js';
-import './my-test.js';
+import {token, signal} from './framework/token.js';
+import MyTest from './my-test.js';
 
 const testGlobalSignal = signal('Hello World');
 const testGlobalChange = () => {
@@ -33,10 +33,6 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
         color.v = color.v === 'text-black' ? 'text-red-500' : 'text-black';
     };
 
-	effect(() => {
-		console.log('input:', input.v);
-	});
-
 	const handler = async () => {
 		const data = await fetch('https://jsonplaceholder.typicode.com/todos/1');
 		const json = await data.json();
@@ -45,12 +41,9 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 	let runs = 0;
 
-	//setInterval(() => count.v++, 1000);
-
 	effect.debounced(() => {
 		count.v;
 		runs++;
-		console.log('debounced runs:', runs);
 	}, 5000);
 
 	html`
@@ -83,7 +76,7 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				</div>
 			</div>
 
-			<my-test class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}></my-test>
+			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}></${MyTest}>
 
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p class="font-medium mb-2">${title}</p>

@@ -1,6 +1,6 @@
 import token from './framework/token.js';
 
-token("my-test", ({ func, prop1, prop2 }) => html`
+export default token(({ func, prop1, prop2 }) => html`
     <div class="space-y-3">
         <p class="text-gray-700 font-medium">${prop2}</p>
         

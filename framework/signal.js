@@ -50,14 +50,9 @@ function signal(initialValue, equals = (a, b) => a === b) {
                 readWriteCycles.set(currentEffect, cycleCount);
                 
                 // If we've hit a threshold of successive read-write cycles, block the update
-                if (cycleCount > 100) { // Arbitrary threshold
+                if (cycleCount > 10) { // Arbitrary threshold
                     console.error('Stopped effect execution because of a potential infinite loop: Effect is repeatedly reading and writing to the same signal');
                     return; // Prevent the update to stop the infinite loop
-                }
-                
-                // Just a warning on first detection
-                if (cycleCount === 1) {
-                    console.warn('Detected effect reading and writing to the same signal - watching for potential infinite loops');
                 }
             }
 

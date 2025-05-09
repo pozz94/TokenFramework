@@ -9,6 +9,12 @@ const convertToSignal = (value) => {
 	return signal(value);
 };
 
+const sanitizeHTML = (html) => {
+	const element = document.createElement('div');
+	element.textContent = html;
+	return element.innerHTML;
+};
+
 const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
 	const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
@@ -17,6 +23,19 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	let slots = [];
 	let plugs = [];
 	let styleElements = [];
+
+	let isConditional = false;
+
+	const handleFullReplacementAndPush = (name, value, callback) => {
+		const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
+		const match = value.match(fullReplacementPlaceholder);
+		if (match) {
+			const index = parseInt(match[1], 10);
+			bindingFunctions.push((bindingValues, node) => callback(bindingValues[index], node));
+			node.removeAttribute(name);
+		}
+		return match !== null;
+	};
 
 	switch (node.nodeType) {
 		// handle text nodes and comments
@@ -27,7 +46,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 					console.error("Style elements can't have bound state since they are added only once to the head of the document for all components of the same type");
 					break;
 				}
-				const { parts, indices } = splitTemplate(node.nodeValue, bindingValues);
+				const { parts, indices } = splitTemplate(node.nodeValue);
 				bindingFunctions.push((bindingValues, node) => {
 					const expressions = [];
 					for (const index of indices) {
@@ -63,49 +82,45 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 			for (const { name, value } of attributes) {
 				if (value.includes('{{--')) {
 					if (name.startsWith('on')) { // handle event attributes
-						const match = value.match(fullReplacementPlaceholder);
-						if (match) {
-							const index = parseInt(match[1], 10);
-							bindingFunctions.push((bindingValues, node) => {
-								if (typeof bindingValues[index] === 'function') {
-									const eventName = name.substring(2).toLowerCase();
-									node.addEventListener(eventName, bindingValues[index]);
-								}
-								node.removeAttribute(name);
-							});
-						}
+						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+							if (typeof bindingValue === 'function') {
+								node.addEventListener(name.substring(2).toLowerCase(), bindingValue);
+							} else {
+								console.error('event attributes must be functions');
+							}
+						});
+					} else if (name === ":this") {
+						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+							if (isSignal(bindingValue)) {
+								bindingValue.v = node;
+							} else {
+								console.error('to save a reference to the element, a signal must be passed as an argument');
+							}
+						});
+					} else if (name === "apply") {
+						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+							if (typeof bindingValue === 'function') {
+								bindingValue(node);
+							} else {
+								console.error('apply accepts only functions as an argument');
+							}
+						});
+					} else if (name.startsWith(':')) { // handle bound attributes
+						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+							if (isSignal(bindingValue)) {
+								return createTwoWayBinding(node, name.substring(1), bindingValue);
+							} else {
+								console.error('bound attribute must be a signal');
+							}
+						});
 					} else if (name === "slot") {
 						plugs.push([value, currentNodeIndex]);
-					} else if (name === ":this") {
-						const match = value.match(fullReplacementPlaceholder);
-						if (match) {
-							const index = parseInt(match[1], 10);
-							bindingFunctions.push((bindingValues, node) => {
-								if (isSignal(bindingValues[index])) {
-									bindingValues[index].v = node;
-								} else {
-									console.error('to save a reference to the element, a signal must be passed as an argument');
-								}
-								node.removeAttribute(name);
-							});
-						}
-					} else if (name.startsWith(':')) { // handle bound attributes
-						const match = value.match(fullReplacementPlaceholder);
-						if (match) {
-							const index = parseInt(match[1], 10);
-							bindingFunctions.push((bindingValues, node) => {
-								if (isSignal(bindingValues[index])) {
-									node.removeAttribute(name);
-									return createTwoWayBinding(node, name.substring(1), bindingValues[index]);
-								} else {
-									console.error('bound attribute must be a signal');
-								}
-								node.removeAttribute(name);
-							});
-						}
+					} else if (name === "if") {
+						isConditional = true;
+						bindingFunctions.push(conditionalHandler(node, bindingValues));
 					} else {
 						if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
-							const { parts, indices } = splitTemplate(value, bindingValues);
+							const { parts, indices } = splitTemplate(value);
 							bindingFunctions.push((bindingValues, node) => {
 								const expressions = [];
 								for (const index of indices) {
@@ -122,32 +137,29 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 								});
 							});
 						} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
-							const match = value.match(fullReplacementPlaceholder);
-							const index = parseInt(match[1], 10);
-							// Handle function binding
-							if (typeof bindingValues[index] === 'function' && isWebComponent(node)) {
-								bindingFunctions.push((bindingValues, node) => {
-									node.setAttribute(name, bindingValues[index], true);
-								});
-							}
-							else {
-								bindingFunctions.push((bindingValues, node) => {
-									const bindingValue = convertToSignal(bindingValues[index]);
+							handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+								if (typeof bindingValue === 'function' && isWebComponent(node)) {
+									node.setAttribute(name, bindingValue, true);
+								}
+								else {
+									const bindingValueSignal = convertToSignal(bindingValue);
 									return effect.UI(() => {
-										const replacement = isSignal(bindingValue) ? bindingValue.v : bindingValue;
+										const replacement = isSignal(bindingValueSignal) ? bindingValueSignal.v : bindingValueSignal;
 										node.setAttribute(name, replacement);
 									});
-								});
-							}
+								}
+							});
 						}
 					}
 				}
 			}
 	}
 
-	if(isWebComponent(node)) bindingFunctions.push((bindingValues, node) => { node.setAttribute('render', true); });
+	if (isWebComponent(node)) bindingFunctions.push((bindingValues, node) => { node.setAttribute('render', true); });
 
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
+
+	if (isConditional) return { bindings, slots, plugs, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
 		const { bindings: childBindings, slots: childSlots, plugs: childPlugs, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
@@ -182,26 +194,19 @@ const applyBindings = async (bindings, bindingValues, origin) => {
 		for (const { index, bindingFunctions } of bindings) {
 			const element = getNodeAtIndex(index, origin);
 			if (isWebComponent(element)) {
-				const tryApplyBinding = async (attempts = 0) => {
+				const tryApplyBinding = (attempts = 0) => {
 					if (element.setAttribute !== HTMLElement.prototype.setAttribute) {
-						const bindingPromises = [];
 						for (const func of bindingFunctions) {
-							bindingPromises.push(new Promise(resolve => {
-								queueMicrotask(() => {
-									const cleanup = func(bindingValues, element);
-									if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
-									resolve();
-								});
-							}));
+							const cleanup = func(bindingValues, element);
+							if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
 						}
-						await Promise.all(bindingPromises);
 					} else if (attempts < 10) queueMicrotask(() => tryApplyBinding(attempts + 1));
 					else console.error(`Failed to apply binding on ${element.tagName}`);
 				};
-				await tryApplyBinding();
+				tryApplyBinding();
 			} else {
 				for (const func of bindingFunctions) {
-					const cleanup = func(bindingValues, element)
+					const cleanup = func(bindingValues, element);
 					if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
 				}
 			}
@@ -215,7 +220,7 @@ const getNodeAtIndex = (index, node) => {
 	return node;
 };
 
-function splitTemplate(str, bindingValues) {
+function splitTemplate(str) {
 	const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
 
 	const parts = [];
@@ -223,33 +228,15 @@ function splitTemplate(str, bindingValues) {
 	let lastIndex = 0;
 	const matches = [...str.matchAll(partialReplacementPlaceholder)];
 	let temp = '';
-	let notSignals = {};
 
 	for (const match of matches) {
 		const currentPart = str.slice(lastIndex, match.index);
 		const index = parseInt(match[1], 10);
-		const bindingValue = bindingValues[index];
 
-		if (isSignal(bindingValue) || typeof bindingValue === 'function') {
-			// If it is a signal, keep them separate
-			parts.push(temp + currentPart);
-			indices.push(index);
-			temp = '';
-		} else {
-			// If not a signal, combine the bindingValue with the next part
-			notSignals[match[0]] = bindingValue;
-
-			temp += currentPart + bindingValue;
-		}
-
-		if (Object.keys(notSignals).length) {
-			console.warn(
-				str,
-				'\nOne or more of the arguments here are not a signals, if you expect all of them to change reactively, make sure they are signals',
-				'\nThose that are not signals will never update. Here are the non-signal values:\n',
-				notSignals
-			);
-		}
+		// If it is a signal, keep them separate
+		parts.push(temp + currentPart);
+		indices.push(index);
+		temp = '';
 
 		lastIndex = match.index + match[0].length;
 	}
@@ -258,11 +245,94 @@ function splitTemplate(str, bindingValues) {
 	return { parts, indices };
 }
 
+const randomId = () => {
+	return Math.random().toString(36).substring(2, 7);
+};
+
+const conditionalHandler = (node, bindingValues) => {
+	const parseConditionValue = (attributeValue) => {
+		const match = attributeValue.match(/\{\{--(\d+)--\}\}/);
+		if (match) {
+			const bindingIndex = parseInt(match[1], 10);
+			return convertToSignal(bindingValues[bindingIndex]);
+		}
+		return signal(false);
+	};
+
+	const createConditionalComponent = (blockContent) => {
+		const blockTemplate = document.createElement('template');
+		for (const node of blockContent) {
+			blockTemplate.content.appendChild(node.cloneNode(true));
+		}
+
+		const blockBindings = findTemplateBindings(blockTemplate.content, bindingValues);
+
+		return token(() => html([], ...bindingValues), {
+			template: blockTemplate.content,
+			...blockBindings
+		});
+	};
+
+	const childNodes = Array.from(node.childNodes);
+	const conditionBranches = [];
+	let currentBranchNodes = [];
+	let branchCondition = parseConditionValue(node.getAttribute('if'));
+
+	node.removeAttribute('if');
+
+	for (const childNode of childNodes) {
+		const isBranchSeparator = childNode.tagName === 'BR' &&
+			(childNode.hasAttribute('else') || childNode.hasAttribute('elseif'));
+
+		if (isBranchSeparator) {
+			conditionBranches.push({
+				condition: branchCondition,
+				componentName: createConditionalComponent(currentBranchNodes)
+			});
+
+			currentBranchNodes = [];
+			branchCondition = childNode.hasAttribute('elseif') ?
+				parseConditionValue(childNode.getAttribute('elseif')) :
+				signal(true);
+		} else {
+			currentBranchNodes.push(childNode);
+		}
+	}
+
+	if (currentBranchNodes.length > 0) {
+		conditionBranches.push({
+			condition: branchCondition,
+			componentName: createConditionalComponent(currentBranchNodes)
+		});
+	}
+
+	return (bindingValues, node) => {
+		effect.UI(() => {
+			for (const branch of conditionBranches) {
+				if (branch.condition.v === true) {
+					const branchElement = document.createElement(branch.componentName);
+					branchElement.setAttribute('render', true);
+					node.innerHTML = '';
+					node.appendChild(branchElement);
+					break;
+				}
+			}
+		});
+	};
+};
+
 const createTemplateFromLiteral = (strings, ...bindingValues) => {
 	const templateString = strings.reduce((acc, str, i) => {
-		//        // If we're at the last string piece and no more values, just append it
+		// If we're at the last string piece and no more values, just append it
 		if (i >= bindingValues.length) {
 			return acc + str;
+		}
+		//if value is not a signal or a function just append it
+		if (!isSignal(bindingValues[i]) && typeof bindingValues[i] !== 'function') {
+			const sanitizedValue = typeof bindingValues[i] === 'string'
+				? sanitizeHTML(bindingValues[i])
+				: bindingValues[i];
+			return acc + str + sanitizedValue;
 		}
 
 		return acc + str + `'{{--${i}--}}'`;
@@ -276,7 +346,7 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 
 const registeredComponentList = new Set();
 
-const component = (name, factory) => {
+const component = (name, factory, bypass = {}) => {
 	if (registeredComponentList.has(name)) {
 		console.warn(`Component with name ${name} already exists`);
 		return;
@@ -284,12 +354,12 @@ const component = (name, factory) => {
 
 	registeredComponentList.add(name);
 
-	let template = null;
+	let template = bypass?.template || null;
 	let styleElement = null;
 	let instanceCount = 0;
-	let bindings = [];
-	let slots = [];
-	let plugs = [];
+	let bindings = bypass?.bindings || [];
+	let slots = bypass?.slots || [];
+	let plugs = bypass?.plugs || [];
 
 	customElements.define(name, class extends HTMLElement {
 		_props = {};
@@ -306,20 +376,13 @@ const component = (name, factory) => {
 				throw new Error('Factory function inside token() cannot be async');
 			}
 			super();
-			this.id = Math.random().toString(36).substring(7);
-			console.time(`${name} render ${this.id}`);
-			this.style.display = 'contents';
-
-			if (this.getAttribute('render') === '') {
-				this.#prepareContent();
-			}
 		}
 
 		#prepareContent() {
 			Array.from(this.attributes).forEach(({ name, value }) => {
 				if (name === 'render' && value === '') {
 					return;
-				} else this.setAttribute(name, value===''?true:value);
+				} else this.setAttribute(name, value === '' ? true : value);
 			});
 
 			for (const [key, value] of Object.entries(this._props)) {
@@ -392,24 +455,17 @@ const component = (name, factory) => {
 			this._templateRendererCalled = true;
 
 			if (!template) {
-				console.time(`${name} createTemplateFromLiteral ${this.id}`);
 				this.#prepareTemplate(strings, bindingValues);
-				console.timeEnd(`${name} createTemplateFromLiteral ${this.id}`);
 			}
 
-			//console.time(`${name} generateCopy ${this.id}`);
 			this.#generateCopy(bindingValues);
-			//console.timeEnd(`${name} generateCopy ${this.id}`);
 		};
 
 		#generateCopy = async (bindingValues) => {
 			const copy = template.cloneNode(true);
 
 			const cleanups = await applyBindings(bindings, bindingValues, copy);
-			//console.log('cleanups:', cleanups);
 			this._unmountHooks.push(...cleanups);
-
-			//console.log('plugs:', plugs);
 
 			const plugElementsArray = plugs.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]);
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
@@ -433,7 +489,6 @@ const component = (name, factory) => {
 			this._content = copy;
 			this.appendChild(this._content);
 			this._mountHooks.forEach(hook => hook());
-			console.timeEnd(`${name} render ${this.id}`);
 		};
 
 		//public and utility methods
@@ -460,12 +515,12 @@ const component = (name, factory) => {
 			bindings = foundBindings;
 			slots = foundSlots;
 			plugs = foundPlugs;
-		}
+		};
 
 		setAttribute(name, value, bind = false) {
 			if (name === 'render' && value === true) {
 				this.#prepareContent();
-				this._props[name] = signal(value);
+				//this._props[name] = signal(value);
 				return;
 			}
 
@@ -484,9 +539,9 @@ const component = (name, factory) => {
 
 			if (type === 'signal') {
 				super.setAttribute(name, value.v);
-				if (!bind) this._props[name].v = value.v
+				if (!bind) this._props[name].v = value.v;
 				else {
-					this._props[name] = value
+					this._props[name] = value;
 					effect(() => super.setAttribute(name, this._props[name].v));
 				};
 			} else {
@@ -503,6 +558,13 @@ const component = (name, factory) => {
 		}
 
 		connectedCallback() {
+			this.id = randomId();
+
+			this.style.display = 'contents';
+
+			if (this.getAttribute('render') === '') {
+				this.#prepareContent();
+			}
 		}
 
 		disconnectedCallback() {
@@ -514,11 +576,23 @@ const component = (name, factory) => {
 			this._unmountHooks.forEach(hook => hook());
 		}
 	});
+
+	return name;
+};
+
+const token = (factoryOrString, bypassOrFactory, bypass) => {
+	if (typeof factoryOrString === 'string' && typeof bypassOrFactory === 'function') {
+		return component(factoryOrString, bypassOrFactory, bypass);
+	} else if (typeof factoryOrString === 'function' && (!bypassOrFactory || typeof bypassOrFactory === 'object')) {
+		return component(`tok-${randomId()}-${randomId()}`, factoryOrString, bypassOrFactory);
+	} else {
+		console.error('Invalid arguments passed to token()', factoryOrString, bypassOrFactory, bypass);
+	}
 };
 
 export {
-	component as default,
-	component as token,
+	token as default,
+	token,
 	signal,
 	computed,
 	effect,
