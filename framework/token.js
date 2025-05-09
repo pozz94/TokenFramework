@@ -1,22 +1,13 @@
-import { UIeffect, effect, signal, computed } from './signal.js';
+import { signal, computed, effect, bound } from './signal.js';
 
 const isSignal = (obj) => typeof obj === 'object' && obj !== null && 'v' in obj;
 const isWebComponent = (element) => element instanceof HTMLElement && element.tagName.includes('-');
 
-function sanitize(string) {
-	const map = {
-		'&': '&amp;',
-		'<': '&lt;',
-		'>': '&gt;',
-		'"': '&quot;',
-		"'": '&#x27;',
-		"/": '&#x2F;',
-	};
-	const reg = /[&<>"'/]/ig;
-	return string.replace(reg, (match) => (map[match]));
-}
-
-const ifStringSanitize = (value) => (typeof value === 'string' ? sanitize(value) : value) ?? '';
+const convertToSignal = (value) => {
+	if (isSignal(value)) return value;
+	if (typeof value === 'function') return computed(value);
+	return signal(value);
+};
 
 const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
@@ -25,23 +16,28 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	let bindingFunctions = [];
 	let slots = [];
 	let plugs = [];
+	let styleElements = [];
 
 	switch (node.nodeType) {
 		// handle text nodes and comments
 		case Node.TEXT_NODE:
 		case Node.COMMENT_NODE:
 			if (partialReplacementPlaceholder.test(node.nodeValue)) {
+				if (node.parentElement.tagName === 'STYLE') {
+					console.error("Style elements can't have bound state since they are added only once to the head of the document for all components of the same type");
+					break;
+				}
 				const { parts, indices } = splitTemplate(node.nodeValue, bindingValues);
 				bindingFunctions.push((bindingValues, node) => {
 					const expressions = [];
 					for (const index of indices) {
-						expressions.push(bindingValues[index]);
+						expressions.push(convertToSignal(bindingValues[index]));
 					}
-					UIeffect(() => {
+					return effect.UI(() => {
 						let newValue = '';
 						let index = 0;
 						for (const part of parts) {
-							newValue += part + ifStringSanitize(expressions[index]?.v) ?? '';
+							newValue += part + (expressions[index]?.v ?? '');
 							index++;
 						}
 						node.nodeValue = newValue;
@@ -55,100 +51,113 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 			if (node.tagName === 'SLOT') {
 				slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
+			} else if (node.tagName === 'STYLE') {
+				styleElements.push(node);
+				return { bindings: [], slots: [], plugs: [], styleElements };
+			} else if (node.tagName === 'W') {
+				bindingFunctions.push((bindingValues, node) => {
+					node.style.display = 'contents';
+				});
 			}
 
 			for (const { name, value } of attributes) {
-				if (name.startsWith('on')) { // handle event attributes
-					const match = value.match(fullReplacementPlaceholder);
-					if (match) {
-						const index = parseInt(match[1], 10);
-						bindingFunctions.push((bindingValues, node) => {
-							if (typeof bindingValues[index] === 'function') {
-								const eventName = name.substring(2).toLowerCase();
-								node.addEventListener(eventName, bindingValues[index]);
-							}
-							node.removeAttribute(name);
-						});
-					}
-				} else if (name === ":this") {
-					const match = value.match(fullReplacementPlaceholder);
-					if (match) {
-						const index = parseInt(match[1], 10);
-						bindingFunctions.push((bindingValues, node) => {
-							if (isSignal(bindingValues[index])) {
-								bindingValues[index].v = node;
-							} else {
-								console.error('to save a reference to the element, a signal must be passed as an argument');
-							}
-							node.removeAttribute(name);
-						});
-					}
-				} else if (name === "slot") {
-					plugs.push([value, currentNodeIndex]);
-				} else if (name.startsWith(':')) { // handle bound attributes
-					const match = value.match(fullReplacementPlaceholder);
-					if (match) {
-						const index = parseInt(match[1], 10);
-						bindingFunctions.push((bindingValues, node) => {
-							if (isSignal(bindingValues[index])) {
-								createTwoWayBinding(node, name.substring(1), bindingValues[index]);
-							} else {
-								console.error('bound attribute must be a signal');
-							}
-							node.removeAttribute(name);
-						});
-					}
-				} else {
-					if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
-						const { parts, indices } = splitTemplate(value, bindingValues);
-						bindingFunctions.push((bindingValues, node) => {
-							const expressions = [];
-							for (const index of indices) {
-								expressions.push(bindingValues[index]);
-							}
-							UIeffect(() => {
-								let newValue = '';
-								let index = 0;
-								for (const part of parts) {
-									newValue += part + ifStringSanitize(expressions[index]?.v) ?? '';
-									index++;
-								}
-								node.setAttribute(name, newValue);
-							});
-						});
-					} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
+				if (value.includes('{{--')) {
+					if (name.startsWith('on')) { // handle event attributes
 						const match = value.match(fullReplacementPlaceholder);
-						const index = parseInt(match[1], 10);
-						// Handle function binding
-						if (typeof bindingValues[index] === 'function') {
+						if (match) {
+							const index = parseInt(match[1], 10);
 							bindingFunctions.push((bindingValues, node) => {
-								node.setAttribute(name, bindingValues[index], true);
+								if (typeof bindingValues[index] === 'function') {
+									const eventName = name.substring(2).toLowerCase();
+									node.addEventListener(eventName, bindingValues[index]);
+								}
+								node.removeAttribute(name);
 							});
 						}
-						else {
+					} else if (name === "slot") {
+						plugs.push([value, currentNodeIndex]);
+					} else if (name === ":this") {
+						const match = value.match(fullReplacementPlaceholder);
+						if (match) {
+							const index = parseInt(match[1], 10);
 							bindingFunctions.push((bindingValues, node) => {
-								const bindingValue = bindingValues[index];
-								UIeffect(() => {
-									const replacement = isSignal(bindingValue) ? bindingValue.v : bindingValue;
-									node.setAttribute(name, ifStringSanitize(replacement));
+								if (isSignal(bindingValues[index])) {
+									bindingValues[index].v = node;
+								} else {
+									console.error('to save a reference to the element, a signal must be passed as an argument');
+								}
+								node.removeAttribute(name);
+							});
+						}
+					} else if (name.startsWith(':')) { // handle bound attributes
+						const match = value.match(fullReplacementPlaceholder);
+						if (match) {
+							const index = parseInt(match[1], 10);
+							bindingFunctions.push((bindingValues, node) => {
+								if (isSignal(bindingValues[index])) {
+									node.removeAttribute(name);
+									return createTwoWayBinding(node, name.substring(1), bindingValues[index]);
+								} else {
+									console.error('bound attribute must be a signal');
+								}
+								node.removeAttribute(name);
+							});
+						}
+					} else {
+						if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
+							const { parts, indices } = splitTemplate(value, bindingValues);
+							bindingFunctions.push((bindingValues, node) => {
+								const expressions = [];
+								for (const index of indices) {
+									expressions.push(convertToSignal(bindingValues[index]));
+								}
+								return effect.UI(() => {
+									let newValue = '';
+									let index = 0;
+									for (const part of parts) {
+										newValue += part + (expressions[index]?.v ?? '');
+										index++;
+									}
+									node.setAttribute(name, newValue);
 								});
 							});
+						} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
+							const match = value.match(fullReplacementPlaceholder);
+							const index = parseInt(match[1], 10);
+							// Handle function binding
+							if (typeof bindingValues[index] === 'function' && isWebComponent(node)) {
+								bindingFunctions.push((bindingValues, node) => {
+									node.setAttribute(name, bindingValues[index], true);
+								});
+							}
+							else {
+								bindingFunctions.push((bindingValues, node) => {
+									const bindingValue = convertToSignal(bindingValues[index]);
+									return effect.UI(() => {
+										const replacement = isSignal(bindingValue) ? bindingValue.v : bindingValue;
+										node.setAttribute(name, replacement);
+									});
+								});
+							}
 						}
 					}
 				}
 			}
 	}
 
+	if(isWebComponent(node)) bindingFunctions.push((bindingValues, node) => { node.setAttribute('render', true); });
+
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
 	for (let i = 0; i < node.childNodes.length; i++) {
-		const { bindings: childBindings, slots: childSlots, plugs: childPlugs } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
+		const { bindings: childBindings, slots: childSlots, plugs: childPlugs, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
 		bindings.push(...childBindings);
 		slots.push(...childSlots);
 		plugs.push(...childPlugs);
+		styleElements.push(...childStyles);
 	}
 
-	return { bindings, slots, plugs };
+	return { bindings, slots, plugs, styleElements };
 };
 
 const createTwoWayBinding = (element, boundAttrName, sig) => {
@@ -158,7 +167,7 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
 		element.addEventListener('input', (e) => {
 			sig.v = element[boundAttrName];
 		});
-		UIeffect(() => {
+		return effect.UI(() => {
 			element[boundAttrName] = sig.v;
 		});
 	}
@@ -167,7 +176,8 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
 	}
 };
 
-const applyBindings = (bindings, bindingValues, origin) => {
+const applyBindings = async (bindings, bindingValues, origin) => {
+	const cleanups = [];
 	if (bindings.length) {
 		for (const { index, bindingFunctions } of bindings) {
 			const element = getNodeAtIndex(index, origin);
@@ -178,24 +188,26 @@ const applyBindings = (bindings, bindingValues, origin) => {
 						for (const func of bindingFunctions) {
 							bindingPromises.push(new Promise(resolve => {
 								queueMicrotask(() => {
-									func(bindingValues, element);
+									const cleanup = func(bindingValues, element);
+									if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
 									resolve();
 								});
 							}));
 						}
 						await Promise.all(bindingPromises);
-						element.setAttribute('render', 'now');
 					} else if (attempts < 10) queueMicrotask(() => tryApplyBinding(attempts + 1));
 					else console.error(`Failed to apply binding on ${element.tagName}`);
 				};
-				tryApplyBinding();
+				await tryApplyBinding();
 			} else {
 				for (const func of bindingFunctions) {
-					func(bindingValues, element);
+					const cleanup = func(bindingValues, element)
+					if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
 				}
 			}
 		}
 	}
+	return cleanups;
 };
 
 const getNodeAtIndex = (index, node) => {
@@ -254,60 +266,12 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 		}
 
 		return acc + str + `'{{--${i}--}}'`;
-	}, '');
+	}, '').replace(/[^\S\r\n]+/g, ' ');
 
 	const template = document.createElement('template');
 	template.innerHTML = templateString;
 
 	return template.content;
-};
-
-// Add at the top of component.js
-const BATCH_SIZE = 50; // Number of components to process per frame
-let pendingRenders = new Set();
-let rafScheduled = false;
-let lastFrameTime = 0;
-const TARGET_FPS = 60;
-const FRAME_BUDGET = 1000 / TARGET_FPS; // ~16.67ms for 60fps
-
-const processBatch = (timestamp) => {
-	// Reset RAF scheduled flag
-	rafScheduled = false;
-
-	// Calculate time since last frame
-	const timeSinceLastFrame = timestamp - lastFrameTime;
-
-	// If we're running faster than our target FPS, schedule next frame
-	if (timeSinceLastFrame < FRAME_BUDGET) {
-		scheduleNextBatch();
-		return;
-	}
-
-	// Update last frame time
-	lastFrameTime = timestamp;
-
-	// Process a batch
-	if (pendingRenders.size > 0) {
-		const currentBatch = Array.from(pendingRenders).slice(0, BATCH_SIZE);
-
-		// Process current batch
-		currentBatch.forEach(renderFn => {
-			pendingRenders.delete(renderFn);
-			renderFn();
-		});
-
-		// If there are still items to process, schedule next frame
-		if (pendingRenders.size > 0) {
-			scheduleNextBatch();
-		}
-	}
-};
-
-const scheduleNextBatch = () => {
-	if (!rafScheduled) {
-		rafScheduled = true;
-		requestAnimationFrame(processBatch);
-	}
 };
 
 const registeredComponentList = new Set();
@@ -321,6 +285,8 @@ const component = (name, factory) => {
 	registeredComponentList.add(name);
 
 	let template = null;
+	let styleElement = null;
+	let instanceCount = 0;
 	let bindings = [];
 	let slots = [];
 	let plugs = [];
@@ -334,6 +300,7 @@ const component = (name, factory) => {
 		_templateRendererCalled = false;
 
 		constructor() {
+			instanceCount++;
 			//if factory is async, throw error
 			if (factory.constructor.name === "AsyncFunction") {
 				throw new Error('Factory function inside token() cannot be async');
@@ -342,17 +309,17 @@ const component = (name, factory) => {
 			this.id = Math.random().toString(36).substring(7);
 			console.time(`${name} render ${this.id}`);
 			this.style.display = 'contents';
-			//this.#initializeProps();
-			if (this.getAttribute('render') === 'now') {
-				this.prepareContent();
+
+			if (this.getAttribute('render') === '') {
+				this.#prepareContent();
 			}
 		}
 
-		prepareContent() {
+		#prepareContent() {
 			Array.from(this.attributes).forEach(({ name, value }) => {
-				if (name === 'render' && value === 'now') {
+				if (name === 'render' && value === '') {
 					return;
-				} else this.setAttribute(name, value);
+				} else this.setAttribute(name, value===''?true:value);
 			});
 
 			for (const [key, value] of Object.entries(this._props)) {
@@ -365,16 +332,34 @@ const component = (name, factory) => {
 				...this._props,
 			};
 
-			const scope = {
+			const createTrackedEffect = (effectFn) => (...args) => {
+				const cleanup = effectFn(...args);
+				this._unmountHooks.push(cleanup);
+				return cleanup;
+			};
+
+			const trackedCleanupEffect = new Proxy(createTrackedEffect(effect), {
+				get(_, prop) {
+					if (prop === 'untrack') return effect.untrack;
+					const effectFn = effect[prop];
+					if (typeof effectFn === 'function') {
+						return createTrackedEffect(effectFn);
+					}
+					return effectFn;
+				}
+			});
+
+			const context = {
 				lifeCycle: {
 					onMount: (fn) => this._mountHooks.push(fn),
 					onUnmount: (fn) => this._unmountHooks.push(fn),
 				},
-				html: this.templateRenderer,
+				html: this.#templateRenderer,
 				i: this._iterators,
 				signal,
 				computed,
-				effect,
+				effect: trackedCleanupEffect,
+				bound,
 			};
 
 			const proxyProps = new Proxy(props, {
@@ -383,24 +368,23 @@ const component = (name, factory) => {
 					if (!(prop in target)) {
 						console.warn(`Property ${prop} is not set in the custom element`);
 					}
-					//return target[prop];
 					return Reflect.get(...arguments);
 				}
 			});
 
 			const scopedFactory = () => {
-				Object.assign(globalThis, scope);
+				Object.assign(globalThis, context);
 				try {
-					factory(proxyProps, scope);
+					factory(proxyProps, context);
 				} finally {
-					["signal", "computed", "effect", "html", "i", "lifecycle"].forEach(key => { delete globalThis[key]; });
+					Object.keys(context).forEach(key => { delete globalThis[key]; });
 				}
 			};
 
 			scopedFactory();
 		}
 
-		templateRenderer = (strings, ...bindingValues) => {
+		#templateRenderer = (strings, ...bindingValues) => {
 			if (this._templateRendererCalled === true) {
 				console.error('html() can only be called once inside a component');
 				return;
@@ -418,12 +402,14 @@ const component = (name, factory) => {
 			//console.timeEnd(`${name} generateCopy ${this.id}`);
 		};
 
-		#generateCopy = (bindingValues) => {
+		#generateCopy = async (bindingValues) => {
 			const copy = template.cloneNode(true);
 
-			applyBindings(bindings, bindingValues, copy);
+			const cleanups = await applyBindings(bindings, bindingValues, copy);
+			//console.log('cleanups:', cleanups);
+			this._unmountHooks.push(...cleanups);
 
-			console.log('plugs:', plugs);
+			//console.log('plugs:', plugs);
 
 			const plugElementsArray = plugs.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]);
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
@@ -454,7 +440,22 @@ const component = (name, factory) => {
 
 		#prepareTemplate = (strings, bindingValues) => {
 			template = createTemplateFromLiteral(strings, ...bindingValues);
-			const { bindings: foundBindings, slots: foundSlots, plugs: foundPlugs } = findTemplateBindings(template, bindingValues);
+			const { bindings: foundBindings, slots: foundSlots, plugs: foundPlugs, styleElements } = findTemplateBindings(template, bindingValues);
+
+			// Handle styles
+			if (styleElements.length > 0) {
+				const combinedStyles = styleElements
+					.map(style => style.textContent)
+					.join('\n');
+
+				styleElement = document.createElement('style');
+				styleElement.setAttribute('data-component', name);
+				styleElement.textContent = combinedStyles;
+				document.head.appendChild(styleElement);
+
+				// Remove style elements from template
+				styleElements.forEach(style => style.remove());
+			}
 
 			bindings = foundBindings;
 			slots = foundSlots;
@@ -462,8 +463,8 @@ const component = (name, factory) => {
 		}
 
 		setAttribute(name, value, bind = false) {
-			if (name === 'render' && value === 'now') {
-				this.prepareContent();
+			if (name === 'render' && value === true) {
+				this.#prepareContent();
 				this._props[name] = signal(value);
 				return;
 			}
@@ -472,17 +473,22 @@ const component = (name, factory) => {
 
 			if (type === 'function') {
 				this._props[name] = value;
+				super.setAttribute(name, 'functionAttribute');
 				return;
 			}
 
-			if (!this._props[name]) {
+			if (!this._props[name] && !bind) {
 				this._props[name] = signal(value);
+				effect(() => super.setAttribute(name, this._props[name].v));
 			}
 
 			if (type === 'signal') {
 				super.setAttribute(name, value.v);
-				if (bind) this._props[name] = value;
-				else this._props[name].v = value.v;
+				if (!bind) this._props[name].v = value.v
+				else {
+					this._props[name] = value
+					effect(() => super.setAttribute(name, this._props[name].v));
+				};
 			} else {
 				super.setAttribute(name, value);
 				this._props[name].v = value;
@@ -491,10 +497,20 @@ const component = (name, factory) => {
 			effect(() => super.setAttribute(name, this._props[name].v)); //possibly duplicated from when the attribute was set the previous time
 		}
 
+		getAttribute(name, raw = false) {
+			if (raw) return this._props[name] ?? super.getAttribute(name);
+			else return this._props[name]?.v ?? super.getAttribute(name);
+		}
+
 		connectedCallback() {
 		}
 
 		disconnectedCallback() {
+			instanceCount--;
+			if (instanceCount === 0 && styleElement) {
+				styleElement.remove();
+				styleElement = null;
+			}
 			this._unmountHooks.forEach(hook => hook());
 		}
 	});
