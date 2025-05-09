@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Deep Reactivity Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Deep Reactivity Test</h1>
+
+    <div>
+        <h2>Object Reactivity</h2>
+        <pre id="object-display">Loading...</pre>
+        <button id="update-nested">Update Nested Property</button>
+        <button id="add-property">Add New Property</button>
+        <button id="replace-object">Replace Entire Object</button>
+    </div>
+
+    <div>
+        <h2>Array Reactivity</h2>
+        <pre id="array-display">Loading...</pre>
+        <button id="push-item">Increment All Items</button>
+        <button id="pop-item">Pop Last Item</button>
+        <button id="update-item">Multiply First Item</button>
+        <button id="replace-array">Replace Array</button>
+    </div>
+
+    <script type="module">
+        import { signal, dirtyEffect } from '../../src/signal.js';
+
+        // Object reactivity test
+        const person = signal({
+            name: 'John',
+            age: 30,
+            address: {
+                city: 'New York',
+                zip: '10001'
+            }
+        });
+
+        dirtyEffect(() => {
+            document.getElementById('object-display').textContent =
+                JSON.stringify(person.v, null, 2);
+        });
+
+        // Update nested property
+        document.getElementById('update-nested').addEventListener('click', () => {
+            person.address.city.v = 'Boston';
+        });
+
+        // Replace entire object
+        document.getElementById('replace-object').addEventListener('click', () => {
+            person.v = {
+                name: 'Alice',
+                age: 25,
+                address: {
+                    city: 'Seattle',
+                    zip: '98101'
+                }
+            };
+        });
+
+        // Add new property
+        document.getElementById('add-property').addEventListener('click', () => {
+            person.job = signal('Developer');
+            console.log('New property added:', person.job.v);
+        });
+
+        // Array reactivity test
+        const items = signal([1, 2, 3]);
+
+        items.push(4); // Initial push to trigger reactivity
+        
+        dirtyEffect(() => {
+            document.getElementById('array-display').textContent =
+                JSON.stringify(items.v, null, 2);
+        });
+
+        // Increment all items by 1
+        document.getElementById('push-item').addEventListener('click', () => {
+            items.v = items.v.map(item => item + 1);
+        });
+
+        // Pop last item
+        document.getElementById('pop-item').addEventListener('click', () => {
+            items.pop();
+            console.log('Last item popped:', items.v, items);
+        });
+
+        // Replace entire array
+        document.getElementById('replace-array').addEventListener('click', () => {
+            items.v = [10, 20, 30];
+        });
+
+        // Multiply first item by 10
+        document.getElementById('update-item').addEventListener('click', () => {
+            console.log(items[0])
+            items[0].v = items[0].v * 10;
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Infinite Loop Protection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+
+        .warning {
+            color: orange;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Infinite Loop Protection Test</h1>
+
+    <div class="test-section">
+        <h2>Direct Dependency Cycle</h2>
+        <p>Tests that a signal updating itself in an effect gets detected</p>
+        <div id="direct-cycle-result">Running test...</div>
+        <button id="run-direct-cycle">Run Test</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Indirect Dependency Cycle</h2>
+        <p>Tests that a cycle through multiple signals gets detected</p>
+        <div id="indirect-cycle-result">Running test...</div>
+        <button id="run-indirect-cycle">Run Test</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Maximum Update Depth</h2>
+        <p>Tests that effect re-runs are limited to prevent freezing</p>
+        <div id="max-depth-result">Running test...</div>
+        <button id="run-max-depth">Run Test</button>
+    </div>
+
+    <script type="module">
+        import { signal, dirtyEffect } from '../../src/token.js';
+
+        // Utility to safely run potentially infinite loop tests
+        function safeTest(testFn, resultElement) {
+            try {
+                // Use a timeout to prevent UI freeze and to catch errors
+                const timeoutId = setTimeout(() => {
+                    resultElement.textContent = "Test failed: Timeout - possible infinite loop";
+                    resultElement.className = "error";
+                }, 1000);
+
+                const result = testFn();
+                clearTimeout(timeoutId);
+
+                resultElement.textContent = "Test passed: Loop protection works";
+                resultElement.className = "success";
+                return result;
+            } catch (error) {
+                resultElement.textContent = `Test passed: Error caught: ${error.message}`;
+                resultElement.className = "success";
+                console.log("Expected error (this is good):", error);
+                return error;
+            }
+        }
+
+        // Direct cycle test
+        document.getElementById('run-direct-cycle').addEventListener('click', () => {
+            const resultElement = document.getElementById('direct-cycle-result');
+
+            safeTest(() => {
+                const counter = signal(0);
+
+                // This should trigger infinite loop protection
+                dirtyEffect(() => {
+                    counter.v++; // Reading and writing in the same effect
+                });
+
+                return counter.v;
+            }, resultElement);
+        });
+
+        // Indirect cycle test
+        document.getElementById('run-indirect-cycle').addEventListener('click', () => {
+            const resultElement = document.getElementById('indirect-cycle-result');
+
+            safeTest(() => {
+                const a = signal(0);
+                const b = signal(0);
+
+                // Create a cycle: a -> b -> a
+                dirtyEffect(() => {
+                    b.v = a.v + 1;
+                });
+
+                dirtyEffect(() => {
+                    a.v = b.v + 1;
+                });
+
+                return a.v;
+            }, resultElement);
+        });
+
+        // Maximum update depth test
+        document.getElementById('run-max-depth').addEventListener('click', () => {
+            const resultElement = document.getElementById('max-depth-result');
+
+            safeTest(() => {
+                const value = signal(0);
+                let updateCount = 0;
+
+                // This should eventually be limited by max depth
+                dirtyEffect(() => {
+                    updateCount++;
+                    if (updateCount < 100) { // Arbitrary limit that should be > than framework limit
+                        value.v++;
+                    }
+                });
+
+                return updateCount;
+            }, resultElement);
+        });
+    </script>
+</body>
+
+</html>

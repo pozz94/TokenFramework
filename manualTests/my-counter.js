@@ -1,4 +1,4 @@
-import {token, signal, effect} from './framework/token.js';
+import {token, signal} from '../src/token.js';
 import MyTest from './my-test.js';
 
 const testGlobalSignal = signal('Hello World');
@@ -81,10 +81,9 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}></${MyTest}>
 
-
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p await=${APIData} class="font-medium">
-					${()=>APIData.data.title}
+					asdf ${()=>APIData.data.title}
 				<br loading>
 					loading...
 				<br error>
@@ -98,7 +97,7 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				<br elseif=${APIData.error}>
 					error.
 				<br else>
-					${()=>APIData.data.title}
+					asdf ${()=>APIData.data.title}
 				</p>
 			</div>
 

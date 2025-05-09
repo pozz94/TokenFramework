@@ -25,7 +25,6 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	let bindingFunctions = [];
 	let slots = [];
-	let plugs = [];
 	let styleElements = [];
 
 	let generatedSubComponent = false;
@@ -78,7 +77,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 				slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
 			} else if (node.tagName === 'STYLE') {
 				styleElements.push(node);
-				return { bindings: [], slots: [], plugs: [], styleElements };
+				return { bindings: [], slots: [], styleElements };
 			} else if (node.tagName === 'W') {
 				bindingFunctions.push((bindingValues, node) => {
 					node.style.display = 'contents';
@@ -128,8 +127,6 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 								console.error('boolean attributes must be signals');
 							}
 						});
-					} else if (name === "slot") {
-						plugs.push([value, currentNodeIndex]);
 					} else if (name === "if") {
 						generatedSubComponent = true;
 						bindingFunctions.push(conditionalHandler(node, bindingValues));
@@ -160,7 +157,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 						} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
 							handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
 								if (typeof bindingValue === 'function' && isWebComponent(node)) {
-									node.setAttribute(name, bindingValue, true);
+									node.setAttribute(name, wrapInContext(bindingValue, context), true);
 								}
 								else {
 									const bindingValueSignal = convertToSignal(bindingValue, context);
@@ -177,17 +174,16 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
-	if (generatedSubComponent) return { bindings, slots, plugs, styleElements };
+	if (generatedSubComponent) return { bindings, slots, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
-		const { bindings: childBindings, slots: childSlots, plugs: childPlugs, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
+		const { bindings: childBindings, slots: childSlots, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
 		bindings.push(...childBindings);
 		slots.push(...childSlots);
-		plugs.push(...childPlugs);
 		styleElements.push(...childStyles);
 	}
 
-	return { bindings, slots, plugs, styleElements };
+	return { bindings, slots, styleElements };
 };
 
 const createTwoWayBinding = (element, boundAttrName, sig) => {
@@ -275,25 +271,51 @@ const randomId = () => {
 	return Math.random().toString(36).substring(2, 7);
 };
 
-const conditionalHandler = (node, bindingValues) => {
-	// Parse condition index from placeholder syntax
-	const parseConditionIndex = (attributeValue) => {
-		const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
-		return match ? parseInt(match[1], 10) : undefined;
-	};
+// Create a component from nodes
+const createComponent = (nodes, bindingValues) => {
+	const template = document.createElement('template');
+	for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
 
-	// Create a component from nodes
-	const createComponent = (nodes) => {
-		const template = document.createElement('template');
-		for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
+	const bindings = findTemplateBindings(template.content, bindingValues);
+	return bindingValues => token(() => html([], ...bindingValues), {
+		template: template.content,
+		...bindings
+	});
+};
 
-		const bindings = findTemplateBindings(template.content, bindingValues);
-		return token(() => html([], ...bindingValues), {
-			template: template.content,
-			...bindings
+const parseConditionIndex = (attributeValue) => {
+	const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
+	return match ? parseInt(match[1], 10) : undefined;
+};
+
+const conditionalHandler = (node, bindingValues, branchGeneration = ifHandler) => {
+	const branches = branchGeneration(node, bindingValues);
+
+	// Return the binding function
+	return (bindingValues, node, context) => {
+		const instanceBranches = branches.map(branch => ({
+			...branch,
+			condition: branch.conditionGenerator(bindingValues, context, branch.conditionIndex, branch.state)
+		}));
+
+		effect.UI(() => {
+			// Clear existing content
+			node.innerHTML = '';
+
+			// Find and render the first matching branch
+			for (const branch of instanceBranches) {
+				if (!!branch.condition.v) {
+					const element = document.createElement(branch.component(bindingValues));
+					element.setContext(context);
+					node.appendChild(element);
+					break;
+				}
+			}
 		});
 	};
+};
 
+const ifHandler = (node, bindingValues) => {
 	// Setup branch collection
 	const branches = [];
 	const childNodes = Array.from(node.childNodes);
@@ -303,8 +325,14 @@ const conditionalHandler = (node, bindingValues) => {
 	// Remove the if attribute as it's been processed
 	node.removeAttribute('if');
 
+	const conditionGenerator = (bindingValues, context, conditionIndex) => {
+		return convertToSignal(
+			conditionIndex !== null ? bindingValues[conditionIndex] : signal(true),
+			context);
+	}
+
 	// Process child nodes to identify branches
-	childNodes.forEach(childNode => {
+	for (const childNode of childNodes) {
 		const isBranchMarker = childNode?.tagName === 'BR' &&
 			(childNode.hasAttribute('else') || childNode.hasAttribute('elseif'));
 
@@ -312,7 +340,8 @@ const conditionalHandler = (node, bindingValues) => {
 			// Store the current branch before starting a new one
 			branches.push({
 				conditionIndex,
-				component: createComponent(currentNodes)
+				conditionGenerator,
+				component: createComponent(currentNodes, bindingValues)
 			});
 
 			// Start a new branch
@@ -323,127 +352,68 @@ const conditionalHandler = (node, bindingValues) => {
 		} else {
 			currentNodes.push(childNode);
 		}
-	});
+	}
 
 	// Add the final branch (if any nodes remain)
 	if (currentNodes.length > 0) {
 		branches.push({
 			conditionIndex,
-			component: createComponent(currentNodes)
+			conditionGenerator,
+			component: createComponent(currentNodes, bindingValues)
 		});
 	}
 
-	// Return the binding function
-	return (bindingValues, node, context) => {
-		effect.UI(() => {
-			// Clear existing content
-			node.innerHTML = '';
+	// Return the branches
+	return branches;
+}
 
-			// Find and render the first matching branch
-			for (const branch of branches) {
-				const condition = convertToSignal(
-					branch.conditionIndex ? bindingValues[branch.conditionIndex] : signal(true),
-					context
-				);
+const resourceHandler = (node, bindingValues) => conditionalHandler(node, bindingValues, resourceBranchGeneration);
 
-				if (condition.v) {
-					const element = document.createElement(branch.component);
-					element.setContext(context);
-					node.appendChild(element);
-					break;
+const resourceBranchGeneration = (node, bindingValues) => {
+	const branchObj = {};
+
+	const childNodes = Array.from(node.childNodes);
+	let currentNodes = [];
+	let currentState = 'data';
+
+	const resourceIndex = parseConditionIndex(node.getAttribute('await'));
+	node.removeAttribute('await');
+
+	for (const childNode of childNodes) {
+		const isStateMarker = childNode?.tagName === 'BR' &&
+			(childNode.hasAttribute('loading') || childNode.hasAttribute('error'));
+
+		if (isStateMarker) {
+			branchObj[currentState] = createComponent(currentNodes, bindingValues);
+			currentNodes = [];
+			currentState = childNode.hasAttribute('loading') ? 'loading' : 'error';
+		} else {
+			currentNodes.push(childNode);
+		}
+	}
+
+	if (currentNodes.length > 0) {
+		branchObj[currentState] = createComponent(currentNodes, bindingValues);
+	}
+
+	const branchOrder = ['loading', 'error', 'data'];
+
+	return branchOrder
+		.filter(state => branchObj[state])
+		.map(state => {
+			const capturedState = state;
+			return {
+				conditionIndex: resourceIndex,
+				state: capturedState,
+				component: branchObj[capturedState],
+				conditionGenerator: function (bindingValues, context, resourceIndex, state) {
+					const resource = convertToSignal(bindingValues[resourceIndex], context);
+					return computed(() => resource[state].v);
 				}
-			}
+			};
 		});
-	};
 };
 
-const resourceHandler = (node, bindingValues) => {
-    // Parse resource index from placeholder syntax
-    const parseResourceIndex = (attributeValue) => {
-        const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
-        return match ? parseInt(match[1], 10) : undefined;
-    };
-
-    // Create a component from nodes
-	const createComponent = (nodes) => {
-		const template = document.createElement('template');
-		for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
-
-		const bindings = findTemplateBindings(template.content, bindingValues);
-		return token(() => html([], ...bindingValues), {
-			template: template.content,
-			...bindings
-		});
-	};
-
-    // Setup branch collection
-    const branches = {
-        data: null,
-        loading: null,
-        error: null
-    };
-    
-    const childNodes = Array.from(node.childNodes);
-    let currentNodes = [];
-    let currentState = 'data'; // Default state shows loading
-    
-    // Get the resource signal index
-    const resourceIndex = parseResourceIndex(node.getAttribute('await'));
-    
-    // Remove the resource attribute as it's been processed
-    node.removeAttribute('await');
-
-    // Process child nodes to identify branches
-    for (const childNode of node.childNodes) {
-        const isStateMarker = childNode?.tagName === 'BR' && 
-            (childNode.hasAttribute('loading') || childNode.hasAttribute('error'));
-
-        if (isStateMarker) {
-            // Store the current branch before starting a new one
-            branches[currentState] = createComponent(currentNodes);
-            
-            // Start a new branch
-            currentNodes = [];
-            currentState = childNode.hasAttribute('loading') ? 'loading' : 'error';
-        } else {
-            currentNodes.push(childNode);
-        }
-    }
-
-    // Add the final branch (if any nodes remain)
-    if (currentNodes.length > 0) {
-        branches[currentState] = createComponent(currentNodes);
-    }
-
-    // Return the binding function
-    return (bindingValues, node, context) => {
-        return effect.UI(() => {
-            // Clear existing content
-            node.innerHTML = '';
-
-            // Get the resource signal
-            const resource = convertToSignal(bindingValues[resourceIndex], context);
-            
-            // Determine which state to display
-            let componentToRender;
-            
-            if (resource.loading.v) {
-                componentToRender = branches.loading;
-            } else if (resource.error.v) {
-                componentToRender = branches.error;
-            } else if (resource.data.v) {
-                componentToRender = branches.data;
-            }
-            
-            // Render the appropriate component
-            if (componentToRender) {
-                const element = document.createElement(componentToRender);
-				node.appendChild(element);
-                element.setContext(context);
-            }
-        });
-    };
-};
 
 const listComponentCache = new Map();
 
@@ -507,7 +477,7 @@ const listHandler = (node, bindingValues, name) => {
 };
 
 const wrapInContext = (fn, context) => {
-	if (!context) return fn;
+	if (!context || !Object.keys(context).length) return fn;
 	return (...args) => {
 		// Store original values
 		const originalValues = {};
@@ -574,7 +544,6 @@ const component = (name, factory, bypass = {}) => {
 	let instanceCount = 0;
 	let bindings = bypass?.bindings || [];
 	let slots = bypass?.slots || [];
-	let plugs = bypass?.plugs || [];
 
 	customElements.define(name, class extends HTMLElement {
 		_props = {};
@@ -595,9 +564,8 @@ const component = (name, factory, bypass = {}) => {
 
 		#prepareContent() {
 			Array.from(this.attributes).forEach(({ name, value }) => {
-				if (name === 'render' && value === '') {
-					return;
-				} else this.setAttribute(name, value === '' ? true : value);
+				if (name === 'render' && value === '') return;
+				else if (!this._props.hasOwnProperty(name)) this.setAttribute(name, value === '' ? true : value);
 			});
 
 			for (const [key, value] of Object.entries(this._props)) {
@@ -620,10 +588,12 @@ const component = (name, factory, bypass = {}) => {
 			const proxyProps = new Proxy(this._props, {
 				//list all props that are accessed to check if they are set in the custom element in the html page
 				get(target, prop) {
+					prop = prop.toLowerCase();
 					if (!(prop in target)) {
 						console.warn(`Property ${prop} is not set in the custom element`);
+						return undefined;
 					}
-					return Reflect.get(...arguments);
+					return Reflect.get(target, prop, this);
 				}
 			});
 
@@ -667,24 +637,30 @@ const component = (name, factory, bypass = {}) => {
 			const cleanups = await applyBindings(bindings, bindingValues, copy, this._additionalContext, name);
 			this._unmountHooks.push(...cleanups);
 
-			const plugElementsArray = plugs.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]);
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
 
-			for (const [slotName, plugElement] of plugElementsArray) {
-				slotElements[slotName].style.display = 'contents';
-				slotElements[slotName].appendChild(plugElement);
-			}
+			const plugs = {}
 
 			for (const child of Array.from(this.children)) {
 				const slotName = child.getAttribute('slot') || 'default';
-				if (!slots[slotName]) {
+				if (!slotElements[slotName]) {
 					console.warn(`No matching slot "${slotName}" found for:`, child);
 					child.remove();
 				} else {
-					slotElements[slotName].style.display = 'contents';
-					slotElements[slotName].appendChild(child);
+					if (!plugs[slotName]) plugs[slotName] = [];
+					plugs[slotName].push(child);
 				}
 			};
+
+			//replace default content from slots if there are plugs for them
+			for (const [slotName, children] of Object.entries(plugs)) {
+				if (slotElements[slotName]) {
+					slotElements[slotName].innerHTML = '';
+					slotElements[slotName].style.display = 'contents';
+					children.forEach(child => slotElements[slotName].appendChild(child));
+				}
+			}
+
 
 			this._content = copy;
 			this.appendChild(this._content);
@@ -695,7 +671,7 @@ const component = (name, factory, bypass = {}) => {
 
 		#prepareTemplate = (strings, bindingValues) => {
 			template = createTemplateFromLiteral(strings, ...bindingValues);
-			const { bindings: foundBindings, slots: foundSlots, plugs: foundPlugs, styleElements } = findTemplateBindings(template, bindingValues);
+			const { bindings: foundBindings, slots: foundSlots, styleElements } = findTemplateBindings(template, bindingValues);
 
 			// Handle styles
 			if (styleElements.length > 0) {
@@ -714,7 +690,6 @@ const component = (name, factory, bypass = {}) => {
 
 			bindings = foundBindings;
 			slots = foundSlots;
-			plugs = foundPlugs;
 		};
 
 		setContext(context) {
@@ -754,7 +729,7 @@ const component = (name, factory, bypass = {}) => {
 				this._props[name].v = value;
 			}
 
-			effect(() => super.setAttribute(name, this._props[name].v)); //possibly duplicated from when the attribute was set the previous time
+			//effect(() => super.setAttribute(name, this._props[name].v)); //possibly duplicated from when the attribute was set the previous time
 		}
 
 		getAttribute(name, raw = false) {
@@ -763,7 +738,7 @@ const component = (name, factory, bypass = {}) => {
 		}
 
 		connectedCallback() {
-			this.id = randomId();
+			this._id = randomId();
 			this.style.display = 'contents';
 
 			if (this.getAttribute('render') === '') {
@@ -801,5 +776,5 @@ export {
 	token,
 	signal,
 	computed,
-	effect,
+	effect as dirtyEffect,
 };

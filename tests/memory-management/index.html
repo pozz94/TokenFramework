@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Memory Management Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+        }
+
+        .metrics {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Memory Management Test</h1>
+
+    <div class="test-section">
+        <h2>Component Lifecycle</h2>
+        <div id="metrics" class="metrics">
+            <div>Components Created: <span id="created-count">0</span></div>
+            <div>Components Mounted: <span id="mounted-count">0</span></div>
+            <div>Components Unmounted: <span id="unmounted-count">0</span></div>
+            <div>Effects Created: <span id="effects-created">0</span></div>
+            <div>Effect Cleanup Functions Called: <span id="effects-cleaned">0</span></div>
+            <div>Effect Reruns: <span id="effects-rerun">0</span></div>
+        </div>
+        <div>
+            <button id="toggle-container">Toggle Container</button>
+            <button id="create-many">Create Many Components</button>
+            <button id="trigger-updates">Trigger Effect Reruns</button>
+            <button id="reset-counts">Reset Counters</button>
+        </div>
+        <div id="conditional-container"></div>
+    </div>
+
+    <script type="module">
+        import { token, signal, dirtyEffect } from '../../src/token.js';
+
+        // Shared trigger for updates
+        const updateTrigger = signal(0);
+
+        // Global counters
+        const metrics = signal({
+            created: 0,
+            mounted: 0,
+            unmounted: 0,
+            effectsCreated: 0,
+            effectsCleaned: 0,
+            effectsRerun: 0
+        });
+
+        // Update metrics display
+        dirtyEffect(() => {
+            document.getElementById('created-count').textContent = metrics.created.v;
+            document.getElementById('mounted-count').textContent = metrics.mounted.v;
+            document.getElementById('unmounted-count').textContent = metrics.unmounted.v;
+            document.getElementById('effects-created').textContent = metrics.effectsCreated.v;
+            document.getElementById('effects-cleaned').textContent = metrics.effectsCleaned.v;
+            document.getElementById('effects-rerun').textContent = metrics.effectsRerun.v;
+        });
+
+        // Define a test component that tracks its lifecycle
+        token('memory-test-item', ({ itemId = signal(0) }, context) => {
+            // Track creation
+            metrics.created.v++;
+
+            // Use lifecycle hooks
+            lifeCycle.onMount(() => {
+                metrics.mounted.v++;
+                console.log('Component mounted');
+            });
+
+            lifeCycle.onUnmount(() => {
+                metrics.unmounted.v++;
+                console.log('Component unmounted');
+            });
+
+            // Create an effect that returns a cleanup function
+            const itemLabel = signal(`Item ${itemId.v}_${Math.floor(Math.random() * 1000)}`);
+
+            metrics.effectsCreated.v++;
+            effect(() => {
+                // This effect depends on updateTrigger to allow forced reruns
+                console.log(`Item effect running: ${itemLabel.v}, trigger: ${updateTrigger.v}`);
+
+                // Track effect run/rerun
+                if (updateTrigger.v > 0) {
+                    effect.untrack(() => metrics.effectsRerun.v++);
+                }
+
+                // Return a cleanup function
+                return () => {
+                    metrics.effectsCleaned.v++;
+                    console.log(`Cleanup function called for ${itemLabel.v}`);
+                };
+            });
+
+            html`
+                <div class="test-component">
+                    <p>Memory Test: ${itemLabel}</p>
+                </div>
+            `;
+        });
+
+        // Container component with list rendering
+        token('list-container', () => {
+            const items = signal([1, 2, 3, 4, 5]);
+
+            lifeCycle.onMount(() => {
+                console.log('Container mounted');
+            });
+
+            lifeCycle.onUnmount(() => {
+                console.log('Container unmounted');
+            });
+
+            html`
+                <div>
+                    <h3>Container with list of items</h3>
+                    <div id="items-container" each:item=${items}>
+                        <memory-test-item itemId=${() => item}></memory-test-item>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Toggle container
+        document.getElementById('toggle-container').addEventListener('click', () => {
+            const container = document.getElementById('conditional-container');
+            console.log('Toggle container', container);
+
+            if (container.hasChildNodes()) {
+                container.innerHTML = '';
+            } else {
+                const listContainer = document.createElement('list-container');
+                container.appendChild(listContainer);
+                listContainer.setContext();
+            }
+        });
+
+        // Create many components
+        document.getElementById('create-many').addEventListener('click', () => {
+            const container = document.getElementById('conditional-container');
+
+            // Create 20 components
+            container.innerHTML = '';
+            for (let i = 0; i < 20; i++) {
+                const el = document.createElement('memory-test-item');
+                container.appendChild(el);
+                el.setAttribute('itemId', i.toString());
+                el.setContext();
+            }
+
+            // Then remove them after 500ms
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 500);
+        });
+
+        // Trigger updates to test cleanup between reruns
+        document.getElementById('trigger-updates').addEventListener('click', () => {
+            updateTrigger.v++;
+        });
+
+        // Reset counters
+        document.getElementById('reset-counts').addEventListener('click', () => {
+            metrics.created.v = 0;
+            metrics.mounted.v = 0;
+            metrics.unmounted.v = 0;
+            metrics.effectsCreated.v = 0;
+            metrics.effectsCleaned.v = 0;
+            metrics.effectsRerun.v = 0;
+        });
+    </script>
+</body>
+
+</html>

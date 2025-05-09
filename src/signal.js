@@ -17,8 +17,8 @@ function signal(initialValue, equals = (a, b) => a === b) {
 		#value;
 		#equals;
 		#subscribers = new Set();
-		#onFirstSubscriber = null;
-		#onLastSubscriberRemoved = null;
+		#onFirstSubscriber = null
+		#onLastSubscriberRemoved = null
 		#readBy = new WeakSet();
 		#readWriteCycles = new Map();
 		#customProps = new Map();
@@ -31,7 +31,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 		}
 
 		#setValue(val) {
-			if (typeof val === 'object' && val !== null) {
+			if (typeof val === 'object' && val !== null && (Array.isArray(val) || Object.getPrototypeOf(val) === Object.prototype)) {
 				if (Array.isArray(val)) {
 					// If current value isn't an array, create one
 					if (!Array.isArray(this.#value)) {
@@ -130,7 +130,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 		// Helper method to unwrap signals recursively
 		#unwrapValue(value) {
 			// If not an object or null, return as is
-			if (typeof value !== 'object' || value === null) {
+			if (typeof value !== 'object' || value === null || (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype)) {
 				return value;
 			}
 
@@ -157,6 +157,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 					}
 				}
 			}
+			
 			return result;
 		}
 
@@ -361,9 +362,9 @@ const isSignal = (obj) => typeof obj === 'object' && obj !== null && 'v' in obj;
 function computed(computeFn) {
 	if (isSignal(computeFn)) return computeFn;
 
-	let s = signal(undefined);
-	let settable = false;
+	const s = signal(undefined);
 	let cleanup = null;
+	let sourceSignal;
 
 	// Initialize the computed value immediately
 	const initialize = () => {
@@ -371,8 +372,8 @@ function computed(computeFn) {
 			cleanup = effect(() => {
 				const newValue = computeFn();
 				if (isSignal(newValue)) {
-					s = newValue;
-					settable = true;
+					sourceSignal = newValue;
+					s.v = newValue.v;
 				}
 				else s.v = newValue;
 			});
@@ -390,7 +391,7 @@ function computed(computeFn) {
 		}
 	});
 
-	return { get v() { return s.v; }, set v(newValue) { if (settable) s.v = newValue; } };
+	return { get v() { return sourceSignal ? sourceSignal.v : s.v }, set v(newValue) { if (sourceSignal) sourceSignal.v = newValue } };
 }
 
 const defaultFetcher = async (input) => {
@@ -413,7 +414,12 @@ const defaultFetcher = async (input) => {
 };
 
 computed.fromResource = (source, fetcher = defaultFetcher) => {
-	const result = signal({ data: null, loading: true, error: null });
+	const result = signal(undefined);
+	result.loading = signal(false);
+	result.error = signal(undefined);
+	result.data = result;
+
+	//const result = signal({ loading: false, error: undefined, data: undefined });
 
 	let disposeEffect;
 
@@ -424,21 +430,24 @@ computed.fromResource = (source, fetcher = defaultFetcher) => {
 			const sourceValue = {
 				...typeof source?.v === 'object' ? source.v : { url: typeof source?.v === 'string' ? source.v : typeof source === 'string' ? source : '' },
 				signal: controller.signal
-			};
+			}
+			result.loading.v = true;
+			result.error.v = undefined;
+			result.v = undefined;
 
-			result.v = { loading: true, data: null, error: null };
+			//result.v = { loading: true, error: undefined, data: undefined };
 
 			fetcher(sourceValue)
-				.then(data => { if (!controller.signal.aborted) { result.v = { loading: true, data, error: false }; } })
-				.catch(error => { if (!controller.signal.aborted && err.name !== 'AbortError') { result.v = { error, loading: true, data: undefined }; } })
-				.finally(() => { if (!controller.signal.aborted) result.loading.v = false; result.data.v = result.data.v; });
+				.then(value => { if (!controller.signal.aborted) { result.loading.v = false; result.data.v = value } })
+				.catch(err => { if (!controller.signal.aborted && err.name !== 'AbortError') { result.loading.v = false; result.error.v = err } })
+			//.finally(() => { if (!controller.signal.aborted) result.loading.v = false });
 
 			// Cleanup function that aborts the request
 			return () => controller.abort();
 		});
 	});
 
-	result.onLastSubscriberRemoved(() => { if (disposeEffect) disposeEffect(); });
+	result.onLastSubscriberRemoved(() => { if (disposeEffect) disposeEffect() });
 
 	return result;
 };

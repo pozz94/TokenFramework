@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Token Component Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        button { margin: 5px; padding: 8px 12px; }
+        input { padding: 6px; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Token Component Test</h1>
+
+    <div class="test-section">
+        <h2>Basic Counter Component</h2>
+        <counter-component render></counter-component>
+    </div>
+    
+    <div class="test-section">
+        <h2>Component With Props</h2>
+        <props-component id="props-component" title="Initial Title" color="blue" render></props-component>
+        <button id="change-title">Change Title</button>
+        <button id="change-color">Change Color</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Nested Components</h2>
+        <parent-component render></parent-component>
+    </div>
+
+    <script type="module">
+        import { token } from '../../src/token.js';
+        
+        // 1. Basic Counter Component
+        token('counter-component', () => {
+            const count = signal(0);
+            
+            const increment = () => { count.v++; };
+            const decrement = () => { count.v--; };
+            
+            html`
+                <div>
+                    <div id="count-display">Count: ${count}</div>
+                    <button id="increment-btn" onclick=${increment}>+</button>
+                    <button id="decrement-btn" onclick=${decrement}>-</button>
+                </div>
+            `;
+        });
+        
+        // 2. Component With Props
+        token('props-component', ({ title = signal('Default Title'), color = signal('black') }) => {
+            // Using the props reactively
+            const uppercaseTitle = computed(() => title.v.toUpperCase());
+            
+            html`
+                <div>
+                    <h3 id="title-display" style="color: ${color}"
+                    >${uppercaseTitle}</h3>
+                    <p id="color-indicator">Current color: ${color}</p>
+                </div>
+            `;
+        });
+        
+        // 3. Child Component for nesting
+        token('child-component', ({ name, nameClick }) => {
+            html`
+                <div class="child">
+                    <p id="child-name" onclick=${()=>nameClick(name.v)}>Child: ${name}</p>
+                </div>
+            `;
+        });
+        
+        // 4. Parent Component demonstrating composition
+        token('parent-component', () => {
+            const children = signal(['Alice', 'Bob', 'Charlie']);
+            const selectedChild = signal('');
+            
+            const handleChildClick = (name) => {
+                selectedChild.v = name;
+            };
+            
+            const addChild = () => {
+                children.push('New Child ' + (children.v.length + 1));
+            };
+            
+            html`
+                <div>
+                    <p id="selected-child">Selected: ${selectedChild}</p>
+                    <button id="add-child-btn" onclick=${addChild}>Add Child</button>
+                    <div id="children-container" each:childname=${children}>
+                        <child-component 
+                            :name=${()=>childname}
+                            nameClick=${handleChildClick}>
+                        </child-component>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // Set up buttons to change props
+        document.getElementById('change-title').addEventListener('click', () => {
+            //const propsComponent = document.getElementById('props-component');
+            const propsComponent = document.querySelector('props-component');
+            //propsComponent.title.v = 'Updated Title';
+            propsComponent.setAttribute('title', 'Updated Title'); // Update the title prop
+        });
+        
+        document.getElementById('change-color').addEventListener('click', () => {
+            //const propsComponent = document.getElementById('props-component');
+            const propsComponent = document.querySelector('props-component');
+            //propsComponent.color.v = propsComponent.color.v === 'black' ? 'red' : 'black';
+            propsComponent.setAttribute('color', propsComponent.getAttribute('color') === 'black' ? 'red' : 'black'); // Update the color prop
+        });
+    </script>
+</body>
+</html>

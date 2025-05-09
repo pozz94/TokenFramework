@@ -1,4 +1,4 @@
-import token, {effect} from './framework/token.js';
+import token from '../src/token.js';
 
 token("effect-test", () => {
     const testSignal = signal(0);

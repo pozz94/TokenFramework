@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Computed Signals Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+
+        .test-section {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+        }
+
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .loading {
+            color: blue;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Computed Signals Test</h1>
+
+    <div class="test-section">
+        <h2>Basic Computed</h2>
+        <div>
+            <p>First Number: <span id="num1">0</span> <button id="inc-num1">+</button></p>
+            <p>Second Number: <span id="num2">0</span> <button id="inc-num2">+</button></p>
+            <p>Sum: <span id="sum">0</span></p>
+            <p>Product: <span id="product">0</span></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Computed with Source Signal</h2>
+        <div>
+            <p>Source Value: <span id="source-value">Hello</span></p>
+            <p>Toggle: <button id="toggle-source">Toggle Source</button></p>
+            <p>Computed: <span id="derived-value">Loading...</span></p>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Computed.fromResource</h2>
+        <div>
+            <p>API URL: <input id="api-url" type="text" value="https://jsonplaceholder.typicode.com/todos/1"></p>
+            <button id="fetch-data">Fetch Data</button>
+            <p>Status: <span id="fetch-status"></span></p>
+            <pre id="fetch-result">Click "Fetch Data" to load</pre>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Computed.fromEvent</h2>
+        <div>
+            <p>Move your mouse over this area:</p>
+            <div id="event-area" style="height: 100px; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center;">
+                Mouse movement area
+            </div>
+            <p>Last event: <span id="event-output">No events yet</span></p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { signal, computed, dirtyEffect } from '../../src/token.js';
+
+        // ===== Basic Computed Test =====
+        const num1 = signal(0);
+        const num2 = signal(0);
+
+        // Create computed values for sum and product
+        const sum = computed(() => num1.v + num2.v);
+        const product = computed(() => num1.v * num2.v);
+
+        // Display num1 and num2
+        dirtyEffect(() => {
+            document.getElementById('num1').textContent = num1.v;
+        });
+
+        dirtyEffect(() => {
+            document.getElementById('num2').textContent = num2.v;
+        });
+
+        // Display sum and product
+        dirtyEffect(() => {
+            document.getElementById('sum').textContent = sum.v;
+        });
+
+        dirtyEffect(() => {
+            document.getElementById('product').textContent = product.v;
+        });
+
+        // Button event handlers
+        document.getElementById('inc-num1').addEventListener('click', () => {
+            num1.v++;
+        });
+
+        document.getElementById('inc-num2').addEventListener('click', () => {
+            num2.v++;
+        });
+
+        // ===== Computed with Source Signal Test =====
+        const sourceValues = ['Hello', 'World', 'Testing', 'Computed'];
+        const sourceIndex = signal(0);
+        const sourceValue = computed(() => sourceValues[sourceIndex.v % sourceValues.length]);
+        
+        // Display source value
+        dirtyEffect(() => {
+            document.getElementById('source-value').textContent = sourceValue.v;
+        });
+        
+        // Create a derived computed that depends on sourceValue - synchronous only!
+        const derivedValue = computed(() => sourceValue.v.toUpperCase());
+        
+        // Display derived value
+        dirtyEffect(() => {
+            document.getElementById('derived-value').textContent = derivedValue.v;
+        });
+        
+        // Toggle source button
+        document.getElementById('toggle-source').addEventListener('click', () => {
+            sourceIndex.v = sourceIndex.v + 1;
+            console.log('Source Index:', sourceIndex.v);
+        });
+
+        // ===== Computed.fromResource Test =====
+        const apiUrl = signal('https://jsonplaceholder.typicode.com/todos/1');
+        const fetchRequest = computed(() => ({ url: apiUrl.v }));
+        const resource = computed.fromResource(fetchRequest);
+        
+        // Display fetch status and result
+        dirtyEffect(() => {
+            const status = document.getElementById('fetch-status');
+            const result = document.getElementById('fetch-result');
+            
+            if (resource.loading.v) {
+                status.textContent = 'Loading...';
+                status.className = 'loading';
+            } else if (resource.error.v) {
+                status.textContent = 'Error: ' + resource.error.v.message;
+                status.className = 'error';
+                result.textContent = 'Failed to fetch data';
+            } else if (resource.v) {
+                status.textContent = 'Success!';
+                status.className = 'success';
+                result.textContent = JSON.stringify(resource.v, null, 2);
+            } else {
+                status.textContent = 'Idle';
+                status.className = '';
+            }
+        });
+        
+        // Fetch data button
+        document.getElementById('fetch-data').addEventListener('click', () => {
+            apiUrl.v = document.getElementById('api-url').value;
+        });
+
+        // ===== Computed.fromEvent Test =====
+        const eventArea = document.getElementById('event-area');
+        const mouseEvents = computed.fromEvent(eventArea, 'mousemove');
+        
+        // Display events
+        dirtyEffect(() => {
+            const event = mouseEvents.v;
+            if (event) {
+                document.getElementById('event-output').textContent = 
+                    `X: ${event.clientX}, Y: ${event.clientY}`;
+            }
+        });
+    </script>
+</body>
+
+</html>

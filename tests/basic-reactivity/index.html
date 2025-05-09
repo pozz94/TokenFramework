@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Basic Reactivity Test</title>
+</head>
+
+<body>
+    <h1>Basic Reactivity Test</h1>
+    <p>Counter: <span id="counter">0</span></p>
+    <button id="increment">Increment</button>
+
+    <script type="module">
+        import { signal, dirtyEffect } from '../../src/token.js';
+
+        const count = signal(0);
+
+        dirtyEffect(() => {
+            document.getElementById('counter').textContent = count.v;
+        });
+
+        document.getElementById('increment').addEventListener('click', () => {
+            count.v++;
+        });
+    </script>
+</body>
+
+</html>

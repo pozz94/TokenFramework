@@ -1,4 +1,4 @@
-import token from './framework/token.js';
+import token from '../src/token.js';
 
 export default token(({ func, prop1, prop2 }) => html`
     <div class="space-y-3">

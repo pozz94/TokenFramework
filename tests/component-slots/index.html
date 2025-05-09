@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Component Slots Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        button { margin: 5px; padding: 8px 12px; }
+        .card { background: white; border: 1px solid #ddd; border-radius: 4px; margin: 10px 0; overflow: hidden; }
+        .card-header { background: #f5f5f5; padding: 10px; border-bottom: 1px solid #ddd; }
+        .card-body { padding: 15px; }
+        .card-footer { background: #f5f5f5; padding: 10px; border-top: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>Component Slots Test</h1>
+
+    <div class="test-section">
+        <h2>Basic Slot Usage</h2>
+        <div>
+            <button id="toggle-default-content">Toggle Default Content</button>
+            <button id="update-header">Update Header</button>
+            <button id="update-footer">Update Footer</button>
+        </div>
+        <div id="basic-slot-container"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Dynamic Slot Content</h2>
+        <div>
+            <button id="add-item">Add Item</button>
+            <button id="clear-items">Clear Items</button>
+        </div>
+        <div id="dynamic-slot-container"></div>
+    </div>
+
+    <script type="module">
+        import token from '../../src/token.js';
+        
+        // 1. Card component with slots
+        token('slot-card', () => {
+            html`
+                <div class="card">
+                    <div class="card-header" id="header-slot">
+                        <slot name="header">Default Header</slot>
+                    </div>
+                    <div class="card-body" id="default-slot-content">
+                        <slot>No content provided</slot>
+                    </div>
+                    <div class="card-footer" id="footer-slot">
+                        <slot name="footer">Default Footer</slot>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // 2. List component with dynamic slots
+        token('slot-list', () => {
+            html`
+                <div class="list-container">
+                    <h3>Item List</h3>
+                    <div id="list-items">
+                        <slot></slot>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // 3. Item component 
+        token('list-item', ({ text }) => {
+            html`
+                <div class="list-item">
+                    <slot name="prefix">•</slot>
+                    <span>${text}</span>
+                    <slot name="suffix"></slot>
+                </div>
+            `;
+        });
+        
+        // App component for basic slot test
+        token('basic-slot-test', () => {
+            const showDefaultContent = signal(true);
+            const headerContent = signal('Card Header');
+            const footerContent = signal('Card Footer');
+            
+            // Toggle default content
+            const toggleDefaultContent = () => {
+                showDefaultContent.v = !showDefaultContent.v;
+            };
+            
+            // Update header content
+            const updateHeader = () => {
+                headerContent.v = 'Updated Header - ' + new Date().toLocaleTimeString();
+            };
+            
+            // Update footer content
+            const updateFooter = () => {
+                footerContent.v = 'Updated Footer - ' + new Date().toLocaleTimeString();
+            };
+            
+            // Connect buttons
+            document.getElementById('toggle-default-content').addEventListener('click', toggleDefaultContent);
+            document.getElementById('update-header').addEventListener('click', updateHeader);
+            document.getElementById('update-footer').addEventListener('click', updateFooter);
+            
+            html`
+                <div>
+                    <slot-card>
+                        <div slot="header">${headerContent}</div>
+                        
+                        <w if=${showDefaultContent}>
+                            <div>This is the <strong>default slot content</strong></div>
+                            <p>You can put any content here.</p>
+                        <br else>
+                            <p>Content has been toggled.</p>
+                        </w>
+
+                        <div slot="footer">${footerContent}</div>
+                    </slot-card>
+                </div>
+            `;
+        });
+        
+        // App component for dynamic slot test
+        token('dynamic-slot-test', () => {
+            const items = signal([
+                { id: 1, text: 'Item 1' },
+                { id: 2, text: 'Item 2' }
+            ]);
+            
+            // Add a new item
+            const addItem = () => {
+                items.push({ 
+                    id: items.v.length + 1, 
+                    text: `Item ${items.v.length + 1}` 
+                });
+            };
+            
+            // Clear all items
+            const clearItems = () => {
+                items.v = [];
+            };
+            
+            // Connect buttons
+            document.getElementById('add-item').addEventListener('click', addItem);
+            document.getElementById('clear-items').addEventListener('click', clearItems);
+            
+            html`
+                <div>
+                    <slot-list>
+                        <!-- ${() => items.v.length === 0} -->
+                        <w if=${() => items.v.length === 0}>
+                            <div id="empty-message">No items available</div>
+                        <br else>
+                            <div id="item-count">Total items: ${() => items.v.length}</div>
+                        </w>
+
+                        <w each:item=${items}>
+                            <list-item text=${()=>item.text}>
+                                <span slot="prefix">→</span>
+                                <button 
+                                    slot="suffix" 
+                                    class="remove-item"
+                                    onclick=${() => {
+                                        const currentItems = [...items.v];
+                                        items.v = items.filter(i => !i.isSame(item)).map(i => i.v);
+                                    }}
+                                >Remove</button>
+                            </list-item>
+                        </w>
+                    </slot-list>
+                </div>
+            `;
+        });
+        
+        // Initialize test components
+        const basicContainer = document.getElementById('basic-slot-container');
+        const basicTest = document.createElement('basic-slot-test');
+        basicContainer.appendChild(basicTest);
+        basicTest.setContext();
+        
+        const dynamicContainer = document.getElementById('dynamic-slot-container');
+        const dynamicTest = document.createElement('dynamic-slot-test');
+        dynamicContainer.appendChild(dynamicTest);
+        dynamicTest.setContext();
+    </script>
+</body>
+</html>

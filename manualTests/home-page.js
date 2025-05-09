@@ -1,4 +1,4 @@
-import token from './framework/token.js';
+import token from '../src/token.js';
 
 import './my-counter.js';
 import './effect-test.js';

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Batch Updates Performance Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        button { margin: 5px; padding: 8px 12px; }
+        .metrics { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        .card { background: white; padding: 12px; margin: 8px 0; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <h1>Batch Updates Performance Test</h1>
+
+    <div class="test-section">
+        <h2>Signal Batch Update</h2>
+        <div class="metrics">
+            <div>Signal Value: <span id="signal-value">0</span></div>
+            <div>Final Value: <span id="final-value">0</span></div>
+            <div>Render Count: <span id="render-count">0</span></div>
+            <div>Updates Performed: <span id="updates-performed">0</span></div>
+        </div>
+        <div>
+            <button id="run-batch-test">Run Batch Update Test (100 updates)</button>
+            <button id="run-unbatched-test">Run Unbatched Test (for comparison)</button>
+            <button id="reset-test">Reset Test</button>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Results Visualization</h2>
+        <div id="results-container">
+            <div class="card">
+                <h3>No test run yet</h3>
+                <p>Click one of the test buttons to see results</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { token, signal, dirtyEffect } from '../../src/token.js';
+        
+        // Test component
+        token('batch-test', () => {
+            // Main test signals
+            const counter = signal(0);
+            const renderCount = signal(-1);
+            const updatesPerformed = signal(0);
+            const finalValue = signal(0);
+            const testResults = signal([]);
+            
+            // Track renders
+            dirtyEffect(() => {
+                // Reading counter forces this effect to run on each counter change
+                console.log(`Counter value: ${counter.v}`);
+                effect.untrack(()=>renderCount.v++);
+            });
+            
+            // Run batched test: update counter 100 times in tight loop
+            const runBatchTest = () => {
+                resetTest();
+                
+                // Record start time
+                const startTime = performance.now();
+                
+                // Update signal 100 times
+                for (let i = 0; i < 100; i++) {
+                    counter.v++;
+                    updatesPerformed.v++;
+                }
+                
+                // Record end time and calculate
+                const endTime = performance.now();
+                const duration = endTime - startTime;
+                
+                // Set final results
+                finalValue.v = counter.v;
+                
+                // Add to results
+                testResults.v = [...testResults.v, {
+                    type: 'Batched',
+                    updates: updatesPerformed.v,
+                    renders: renderCount.v,
+                    duration: duration.toFixed(2),
+                    efficiency: (updatesPerformed.v / renderCount.v).toFixed(2)
+                }];
+            };
+            
+            // Run unbatched test: update with setTimeout between each
+            const runUnbatchedTest = async () => {
+                resetTest();
+                
+                // Record start time
+                const startTime = performance.now();
+                
+                // Function to update one at a time with delay
+                const updateSequentially = async () => {
+                    for (let i = 0; i < 100; i++) {
+                        counter.v++;
+                        updatesPerformed.v++;
+                        
+                        // Small delay to force separate batches
+                        await new Promise(resolve => setTimeout(resolve, 1));
+                    }
+                    
+                    // Record end time and calculate
+                    const endTime = performance.now();
+                    const duration = endTime - startTime;
+                    
+                    // Set final results
+                    finalValue.v = counter.v;
+                    
+                    // Add to results
+                    testResults.v = [...testResults.v, {
+                        type: 'Unbatched',
+                        updates: updatesPerformed.v,
+                        renders: renderCount.v,
+                        duration: duration.toFixed(2),
+                        efficiency: (updatesPerformed.v / renderCount.v).toFixed(2)
+                    }];
+                };
+                
+                updateSequentially();
+            };
+            
+            // Reset test
+            const resetTest = () => {
+                counter.v = 0;
+                renderCount.v = 0;
+                updatesPerformed.v = 0;
+                finalValue.v = 0;
+            };
+            
+            // Connect DOM elements
+            dirtyEffect(() => {
+                document.getElementById('signal-value').textContent = counter.v;
+                document.getElementById('render-count').textContent = renderCount.v;
+                document.getElementById('updates-performed').textContent = updatesPerformed.v;
+                document.getElementById('final-value').textContent = finalValue.v;
+            });
+            
+            // Render results
+            dirtyEffect(() => {
+                const container = document.getElementById('results-container');
+                
+                // Clear previous results
+                container.innerHTML = '';
+                
+                if (testResults.v.length === 0) {
+                    container.innerHTML = `
+                        <div class="card">
+                            <h3>No test run yet</h3>
+                            <p>Click one of the test buttons to see results</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Render each result
+                testResults.v.forEach(result => {
+                    const resultEl = document.createElement('div');
+                    resultEl.className = 'card';
+                    resultEl.innerHTML = `
+                        <h3>${result.type} Test Results</h3>
+                        <p>Updates performed: ${result.updates}</p>
+                        <p>Render count: ${result.renders}</p>
+                        <p>Duration: ${result.duration}ms</p>
+                        <p>Efficiency (updates per render): ${result.efficiency}</p>
+                    `;
+                    container.appendChild(resultEl);
+                });
+                
+                // Add comparison if both tests run
+                if (testResults.v.length >= 2) {
+                    const batched = testResults.v.find(r => r.type === 'Batched');
+                    const unbatched = testResults.v.find(r => r.type === 'Unbatched');
+                    
+                    if (batched && unbatched) {
+                        const comparisonEl = document.createElement('div');
+                        comparisonEl.className = 'card';
+                        
+                        const renderImprovement = (
+                            (unbatched.renders - batched.renders) / unbatched.renders * 100
+                        ).toFixed(2);
+                        
+                        comparisonEl.innerHTML = `
+                            <h3>Comparison Results</h3>
+                            <p>Render reduction with batching: ${renderImprovement}%</p>
+                            <p>Batched updates used ${batched.renders} renders for ${batched.updates} updates</p>
+                            <p>Unbatched updates used ${unbatched.renders} renders for ${unbatched.updates} updates</p>
+                        `;
+                        container.appendChild(comparisonEl);
+                    }
+                }
+            });
+            
+            // Connect buttons
+            document.getElementById('run-batch-test').addEventListener('click', runBatchTest);
+            document.getElementById('run-unbatched-test').addEventListener('click', runUnbatchedTest);
+            document.getElementById('reset-test').addEventListener('click', resetTest);
+            
+            html`
+                <div>
+                    <!-- Content is rendered directly to the DOM elements above -->
+                </div>
+            `;
+        });
+        
+        // Initialize test component
+        const testContainer = document.createElement('batch-test');
+        document.body.appendChild(testContainer);
+        testContainer.setContext();
+    </script>
+</body>
+</html>

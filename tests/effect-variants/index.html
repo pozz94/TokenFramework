@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Effect Variants Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        button { margin: 5px; padding: 8px 12px; }
+        .metrics { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        .progress-bar { height: 20px; background: #eee; border-radius: 4px; margin: 10px 0; overflow: hidden; }
+        .progress-bar-inner { height: 100%; background: #4CAF50; width: 0%; transition: width 0.1s; }
+        .chart { display: flex; margin-top: 15px; height: 100px; align-items: flex-end; }
+        .bar { flex: 1; margin: 0 2px; background: #2196F3; min-height: 1px; }
+    </style>
+</head>
+<body>
+    <h1>Effect Variants Test</h1>
+
+    <div class="test-section">
+        <h2>Effect Update Behavior</h2>
+        <div class="metrics">
+            <div>Test Duration: <span id="duration">0</span>ms</div>
+            <div>Signal Value: <span id="signal-value">0</span></div>
+            <div>Regular Effect Updates: <span id="regular-effect-count">0</span></div>
+            <div>Throttled Effect Updates: <span id="throttled-effect-count">0</span></div>
+            <div>Debounced Effect Updates: <span id="debounced-effect-count">0</span></div>
+            <div>UI Effect Updates: <span id="ui-effect-count">0</span></div>
+        </div>
+        <div>
+            <button id="start-updates">Run Test (500 rapid updates)</button>
+            <button id="reset-test">Reset Test</button>
+        </div>
+        <div class="progress-bar">
+            <div id="progress" class="progress-bar-inner"></div>
+        </div>
+        <div>
+            <h3>Update Visualization</h3>
+            <div id="chart" class="chart"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import token from '../../src/token.js';
+        
+        // Test component
+        token('effect-variants-test', () => {
+            // Test signals
+            const testSignal = signal(0);
+            const testDuration = signal(0);
+            
+            // Update counters
+            const regularUpdates = signal(0);
+            const throttledUpdates = signal(0);
+            const debouncedUpdates = signal(0);
+            const uiUpdates = signal(0);
+            
+            // Update history for visualization
+            const updateHistory = signal({
+                regular: [],
+                throttled: [],
+                debounced: [],
+                ui: []
+            });
+            
+            // TEST EFFECTS
+            
+            // 1. Regular effect: runs on every dependency change
+            effect(() => {
+                // Read testSignal to create dependency
+                console.log(`Regular effect: ${testSignal.v}`);
+                
+                // Track updates - using untrack to prevent circular dependency
+                effect.untrack(() => {
+                    regularUpdates.v++;
+                    
+                    // Record update in history
+                    const newHistory = updateHistory.v;
+                    newHistory.regular.push(testSignal.v);
+                    updateHistory.v = newHistory;
+                });
+            });
+            
+            // 2. Throttled effect: runs at most once per time interval
+            effect.throttled(() => {
+                console.log(`Throttled effect: ${testSignal.v}`);
+                
+                effect.untrack(() => {
+                    throttledUpdates.v++;
+                    
+                    // Record update in history
+                    const newHistory = {...updateHistory.v};
+                    newHistory.throttled.push(testSignal.v);
+                    updateHistory.v = newHistory;
+                });
+            }, 100); // 100ms throttle
+            
+            // 3. Debounced effect: runs after signal stops changing
+            effect.debounced(() => {
+                console.log(`Debounced effect: ${testSignal.v}`);
+                
+                effect.untrack(() => {
+                    debouncedUpdates.v++;
+                    
+                    // Record update in history
+                    const newHistory = {...updateHistory.v};
+                    newHistory.debounced.push(testSignal.v);
+                    updateHistory.v = newHistory;
+                });
+            }, 200); // 200ms debounce
+            
+            // 4. UI effect: runs on animation frame
+            effect.UI(() => {
+                console.log(`UI effect: ${testSignal.v}`);
+                
+                effect.untrack(() => {
+                    uiUpdates.v++;
+                    
+                    // Record update in history
+                    const newHistory = {...updateHistory.v};
+                    newHistory.ui.push(testSignal.v);
+                    updateHistory.v = newHistory;
+                });
+            });
+            
+            // Connect DOM elements
+            effect(() => {
+                document.getElementById('signal-value').textContent = testSignal.v;
+                document.getElementById('regular-effect-count').textContent = regularUpdates.v;
+                document.getElementById('throttled-effect-count').textContent = throttledUpdates.v;
+                document.getElementById('debounced-effect-count').textContent = debouncedUpdates.v;
+                document.getElementById('ui-effect-count').textContent = uiUpdates.v;
+                document.getElementById('duration').textContent = testDuration.v;
+                
+                // Update progress bar during test
+                const progress = document.getElementById('progress');
+                if (testSignal.v > 0) {
+                    progress.style.width = Math.min(100, (testSignal.v / 500) * 100) + '%';
+                } else {
+                    progress.style.width = '0%';
+                }
+            });
+            
+            // Render update history visualization
+            effect(() => {
+                const chart = document.getElementById('chart');
+                chart.innerHTML = '';
+                
+                // Find max value to scale bars
+                const allUpdates = [
+                    ...updateHistory.v.regular,
+                    ...updateHistory.v.throttled, 
+                    ...updateHistory.v.debounced,
+                    ...updateHistory.v.ui
+                ];
+                const maxUpdates = Math.max(
+                    updateHistory.v.regular.length,
+                    updateHistory.v.throttled.length,
+                    updateHistory.v.debounced.length, 
+                    updateHistory.v.ui.length
+                );
+                
+                if (maxUpdates === 0) return;
+                
+                // Create bars for each update type
+                const types = ['regular', 'throttled', 'debounced', 'ui'];
+                const colors = ['#4CAF50', '#FF9800', '#F44336', '#2196F3'];
+                
+                types.forEach((type, index) => {
+                    const count = updateHistory.v[type].length;
+                    const bar = document.createElement('div');
+                    bar.className = 'bar';
+                    bar.style.height = (count / maxUpdates * 100) + '%';
+                    bar.style.background = colors[index];
+                    bar.title = `${type}: ${count} updates`;
+                    chart.appendChild(bar);
+                });
+            });
+            
+            // Run rapid updates
+            const runTest = async () => {
+                resetTest();
+                
+                const startTime = performance.now();
+                
+                // Run 500 rapid updates
+                for (let i = 1; i <= 500; i++) {
+                    testSignal.v = i;
+                    
+                    // Add a small delay to allow UI to update
+                    if (i % 1 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 1));
+                        testDuration.v = Math.round(performance.now() - startTime);
+                    }
+                }
+                
+                // Final duration update
+                testDuration.v = Math.round(performance.now() - startTime);
+                console.log(`Test completed in ${testDuration.v}ms`);
+            };
+            
+            // Reset test metrics
+            const resetTest = () => {
+                testSignal.v = 0;
+                testDuration.v = 0;
+                regularUpdates.v = 0;
+                throttledUpdates.v = 0;
+                debouncedUpdates.v = 0;
+                uiUpdates.v = 0;
+                updateHistory.v = {
+                    regular: [],
+                    throttled: [],
+                    debounced: [],
+                    ui: []
+                };
+            };
+            
+            // Connect buttons
+            document.getElementById('start-updates').addEventListener('click', runTest);
+            document.getElementById('reset-test').addEventListener('click', resetTest);
+            
+            html`
+                <div>
+                    <!-- Content is rendered directly to the DOM elements above -->
+                </div>
+            `;
+        });
+        
+        // Initialize test component
+        const testContainer = document.createElement('effect-variants-test');
+        document.body.appendChild(testContainer);
+        testContainer.setContext();
+    </script>
+</body>
+</html>
