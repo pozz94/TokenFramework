@@ -1,0 +1,119 @@
+//signal.js
+let currentEffect;
+let pendingEffects = new Set();
+let isFlushing = false;
+
+// Core Signal Implementation
+function signal(initialValue) {
+  const subscribers = new Set();
+  let value = initialValue;
+  let onFirstSubscriber = null;
+  let onLastSubscriberRemoved = null;
+
+  return {
+    get v() {
+      if (currentEffect && !subscribers.has(currentEffect)) {
+        if (subscribers.size === 0 && onFirstSubscriber) onFirstSubscriber();
+        subscribers.add(currentEffect);
+        currentEffect.dependencies.add(() => {
+          subscribers.delete(currentEffect);
+          if (subscribers.size === 0 && onLastSubscriberRemoved) onLastSubscriberRemoved();
+        });
+      }
+      return value;
+    },
+    set v(newValue) {
+      if (newValue !== value) {
+        value = newValue;
+        queueEffects(subscribers);
+      }
+    },
+    onFirstSubscriber(cb) { onFirstSubscriber = cb },
+    onLastSubscriberRemoved(cb) { onLastSubscriberRemoved = cb }
+  };
+}
+
+// Computed Values with Lifecycle Management
+function computed(computeFn) {
+  const s = signal(undefined);
+  let disposeEffect = null;
+
+  s.onFirstSubscriber = () => {
+    disposeEffect = effect(() => s.v = computeFn());
+  };
+
+  s.onLastSubscriberRemoved = () => {
+    disposeEffect?.();
+    disposeEffect = null;
+  };
+
+  return { get v() { return s.v; } };
+}
+
+// Base Effect Implementation
+function effect(fn) {
+  const effectFn = () => {
+    cleanupDependencies(effectFn);
+    effectFn.processedSubscribers = new Set();
+    currentEffect = effectFn;
+    try { fn() } 
+    finally { currentEffect = null }
+  };
+
+  effectFn.dependencies = new Set();
+  effectFn.processedSubscribers = new Set();
+  
+  const cleanup = () => {
+    cleanupDependencies(effectFn);
+    pendingEffects.delete(effectFn);
+  };
+
+  effectFn();
+  return cleanup;
+}
+
+// UI Effect with Frame Throttling
+function UIeffect(fn) {
+  let isScheduled = false;
+  const c = computed(fn);
+
+  const dispose = effect(() => {
+    c.v; // Track dependencies
+    if (!isScheduled) {
+      isScheduled = true;
+      requestAnimationFrame(() => {
+        isScheduled = false;
+        fn();
+      });
+    }
+  });
+
+  return dispose;
+}
+
+// Shared Utilities
+function queueEffects(subscribers) {
+  subscribers.forEach(effect => {
+    if (!pendingEffects.has(effect)) {
+      pendingEffects.add(effect);
+      if (!isFlushing) {
+        isFlushing = true;
+        queueMicrotask(flushEffects);
+      }
+    }
+  });
+}
+
+function flushEffects() {
+  const effectsToRun = pendingEffects;
+  pendingEffects = new Set();
+  isFlushing = false;
+  effectsToRun.forEach(effect => effect());
+}
+
+function cleanupDependencies(effectFn) {
+  effectFn.dependencies.forEach(cleanup => cleanup());
+  effectFn.dependencies.clear();
+}
+
+export {signal, computed, effect, UIeffect};

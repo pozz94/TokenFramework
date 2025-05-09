@@ -1,0 +1,186 @@
+import { UIeffect, signal } from './signal.js';
+
+// Regular expressions for template placeholders
+const FULL_REPLACEMENT = /\{\{--(\d+)--\}\}/g;
+const PARTIAL_REPLACEMENT = /\'\{\{--(\d+)--\}\}\'/g;
+
+// Utility to check if an object is a signal
+const isSignal = (obj) => obj && typeof obj === 'object' && 'v' in obj;
+
+// Handle attribute parsing and binding
+function parseAttributes(element, args) {
+    Array.from(element.attributes).forEach(({ name, value }) => {
+        // Handle event listeners
+        if (name.startsWith('on')) {
+            console.log('event attribute:', name, value);
+            const match = value.match(FULL_REPLACEMENT);
+            if (match) {
+                const handler = args[parseInt(match[1], 10)];
+                if (typeof handler === 'function') {
+                    console.log('adding event listener:', name, handler);
+                    element.removeAttribute(name);
+                    element.addEventListener(name.slice(2).toLowerCase(), handler);
+                }
+            }
+            return;
+        }
+
+        // Handle reactive attributes
+        const matches = [...value.matchAll(FULL_REPLACEMENT)];
+        if (matches.length) {
+            const originalValue = value;
+            UIeffect(() => {
+                let newValue = originalValue;
+                for (const [placeholder, index] of matches) {
+                    const arg = args[parseInt(index, 10)];
+                    const replacement = isSignal(arg) ? arg.v : arg;
+                    
+                    // Handle partial vs full replacements
+                    if (PARTIAL_REPLACEMENT.test(newValue)) {
+                        newValue = newValue.replace(`"{{--${index}--}}"`, replacement);
+                    } else {
+                        newValue = replacement;
+                    }
+                }
+                
+                // Update attribute if value has changed
+                if (element.getAttribute(name) !== newValue) {
+                    element.setAttribute(name, newValue);
+                }
+            });
+        }
+    });
+}
+
+// Handle text node binding
+function parseTextNodes(node, args) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        const matches = [...node.nodeValue.matchAll(PARTIAL_REPLACEMENT)];
+        if (matches.length) {
+            const originalValue = node.nodeValue;
+            UIeffect(() => {
+                let newValue = originalValue;
+                for (const [placeholder, index] of matches) {
+                    const arg = args[parseInt(index, 10)];
+                    const replacement = isSignal(arg) ? arg.v : arg;
+                    newValue = newValue.replace(`"{{--${index}--}}"`, replacement);
+                }
+                if (node.nodeValue !== newValue) {
+                    node.nodeValue = newValue;
+                }
+            });
+        }
+    } else {
+        node.childNodes.forEach(child => parseTextNodes(child, args));
+    }
+}
+
+// Recursively parse elements and their children
+function parseElement(element, args) {
+    if (element.nodeType === Node.ELEMENT_NODE) {
+        parseAttributes(element, args);
+        element.childNodes.forEach(child => {
+            parseTextNodes(child, args);
+            parseElement(child, args);
+        });
+    }
+}
+
+// Template parser
+function parseTemplate(strings, ...args) {
+    // Create template string with placeholders
+    const templateString = strings.reduce((acc, str, i) => 
+        acc + str + (i < args.length ? `'{{--${i}--}}'` : ''), '');
+
+    // Create and populate template element
+    const template = document.createElement('template');
+    template.innerHTML = templateString.trim();
+    const fragment = template.content.cloneNode(true);
+
+    // Handle slots
+    fragment.querySelectorAll('slot').forEach(slot => {
+        const name = slot.getAttribute('name');
+        if (name) {
+            const wrapper = document.createElement('span');
+            wrapper.style.display = 'contents';
+            wrapper.setAttribute('slot', name);
+            slot.replaceWith(wrapper);
+        }
+    });
+
+    // Parse the fragment
+    parseElement(fragment, args);
+    return fragment;
+}
+
+// Component factory
+function component(name, factory) {
+    customElements.define(name, class extends HTMLElement {
+        constructor() {
+            super();
+            this._state = {};
+            this._props = {};
+            this._mountHooks = new Set();
+            this._updateHooks = new Set();
+            this._cleanup = new Set();
+            this.attachShadow({ mode: 'open' });
+        }
+
+        // Lifecycle hooks
+        connectedCallback() {
+            const props = {
+                ...this._props,
+                state: this._state,
+                mounthook: (fn) => this._mountHooks.add(fn),
+                updatehook: (fn) => this._updateHooks.add(fn),
+                cleanup: (fn) => this._cleanup.add(fn),
+                html: (strings, ...args) => parseTemplate(strings, ...args)
+            };
+
+            const fragment = factory(props);
+
+            // Handle scoped styles
+            fragment.querySelectorAll('style[scoped]').forEach(style => {
+                this.shadowRoot.appendChild(style.cloneNode(true));
+            });
+
+            // Append main content
+            this.shadowRoot.appendChild(fragment);
+
+            // Handle slot content
+            this.querySelectorAll('[slot]').forEach(node => {
+                const slotName = node.getAttribute('slot');
+                const slot = this.shadowRoot.querySelector(`slot[name="${slotName}"]`);
+                if (slot) {
+                    slot.replaceWith(node.cloneNode(true));
+                }
+            });
+
+            // Run lifecycle hooks
+            this._mountHooks.forEach(hook => hook());
+            this._triggerUpdate();
+        }
+
+        disconnectedCallback() {
+            this._cleanup.forEach(cleanup => cleanup());
+            this._cleanup.clear();
+            this._mountHooks.clear();
+            this._updateHooks.clear();
+        }
+
+        _triggerUpdate() {
+            this._updateHooks.forEach(hook => hook());
+        }
+
+        setState(newState) {
+            Object.assign(this._state, newState);
+            this._triggerUpdate();
+        }
+
+        setProps(props) {
+            Object.assign(this._props, props);
+        }
+    });
+}
+
+export { component };
