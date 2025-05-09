@@ -1,19 +1,23 @@
-import { signal, computed, effect, bound } from './signal.js';
+import { signal, computed, effect, isSignal } from './signal.js';
 
-const isSignal = (obj) => typeof obj === 'object' && obj !== null && 'v' in obj;
 const isWebComponent = (element) => element instanceof HTMLElement && element.tagName.includes('-');
 
-const convertToSignal = (value) => {
+const convertToSignal = (value, context) => {
 	if (isSignal(value)) return value;
-	if (typeof value === 'function') return computed(value);
+	if (typeof value === 'function') return computed(wrapInContext(value, context));
 	return signal(value);
 };
 
-const sanitizeHTML = (html) => {
+const sanitizeHTML = (value) => {
+	if (typeof value !== 'string') return value;
 	const element = document.createElement('div');
-	element.textContent = html;
+	element.textContent = value;
 	return element.innerHTML;
 };
+
+const BOOLEAN_ATTRIBUTES = new Set([
+	'checked', 'selected', 'disabled', 'readonly', 'required', 'hidden', 'multiple', 'open', 'autofocus', 'loop', 'muted', 'controls', 'autoplay'
+]);
 
 const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
@@ -24,14 +28,14 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	let plugs = [];
 	let styleElements = [];
 
-	let isConditional = false;
+	let generatedSubComponent = false;
 
 	const handleFullReplacementAndPush = (name, value, callback) => {
 		const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
 		const match = value.match(fullReplacementPlaceholder);
 		if (match) {
 			const index = parseInt(match[1], 10);
-			bindingFunctions.push((bindingValues, node) => callback(bindingValues[index], node));
+			bindingFunctions.push((bindingValues, node, context) => callback(bindingValues[index], node, context));
 			node.removeAttribute(name);
 		}
 		return match !== null;
@@ -42,25 +46,27 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 		case Node.TEXT_NODE:
 		case Node.COMMENT_NODE:
 			if (partialReplacementPlaceholder.test(node.nodeValue)) {
-				if (node.parentElement.tagName === 'STYLE') {
+				if (node?.parentElement?.tagName === 'STYLE') {
 					console.error("Style elements can't have bound state since they are added only once to the head of the document for all components of the same type");
 					break;
 				}
 				const { parts, indices } = splitTemplate(node.nodeValue);
-				bindingFunctions.push((bindingValues, node) => {
+				bindingFunctions.push((bindingValues, node, context) => {
 					const expressions = [];
+
 					for (const index of indices) {
-						expressions.push(convertToSignal(bindingValues[index]));
+						expressions.push(convertToSignal(bindingValues[index], context));
 					}
-					return effect.UI(() => {
+
+					return effect.UI(wrapInContext(() => {
 						let newValue = '';
 						let index = 0;
 						for (const part of parts) {
-							newValue += part + (expressions[index]?.v ?? '');
+							newValue += part + (isSignal(expressions[index]) && !expressions[index]?.v?.proxy ? expressions[index].v : '');
 							index++;
 						}
 						node.nodeValue = newValue;
-					});
+					}, context));
 				});
 			}
 			break;
@@ -82,9 +88,9 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 			for (const { name, value } of attributes) {
 				if (value.includes('{{--')) {
 					if (name.startsWith('on')) { // handle event attributes
-						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
 							if (typeof bindingValue === 'function') {
-								node.addEventListener(name.substring(2).toLowerCase(), bindingValue);
+								node.addEventListener(name.substring(2).toLowerCase(), wrapInContext(bindingValue, context));
 							} else {
 								console.error('event attributes must be functions');
 							}
@@ -98,35 +104,50 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 							}
 						});
 					} else if (name === "apply") {
-						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
 							if (typeof bindingValue === 'function') {
-								bindingValue(node);
+								wrapInContext(() => bindingValue(node), context)();
 							} else {
 								console.error('apply accepts only functions as an argument');
 							}
 						});
 					} else if (name.startsWith(':')) { // handle bound attributes
-						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
-							if (isSignal(bindingValue)) {
-								return createTwoWayBinding(node, name.substring(1), bindingValue);
+						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+							if (isSignal(bindingValue) || typeof bindingValue === 'function') {
+								return createTwoWayBinding(node, name.substring(1), convertToSignal(bindingValue, context));
 							} else {
 								console.error('bound attribute must be a signal');
+							}
+						});
+					} else if (BOOLEAN_ATTRIBUTES.has(name.toLowerCase())) {
+						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+							if (isSignal(bindingValue) || typeof bindingValue === 'function') {
+								bindingValue = convertToSignal(bindingValue, context);
+								return effect.UI(wrapInContext(() => node[name] = bindingValue.v, context));
+							} else {
+								console.error('boolean attributes must be signals');
 							}
 						});
 					} else if (name === "slot") {
 						plugs.push([value, currentNodeIndex]);
 					} else if (name === "if") {
-						isConditional = true;
+						generatedSubComponent = true;
 						bindingFunctions.push(conditionalHandler(node, bindingValues));
+					} else if (name === "await") {
+						generatedSubComponent = true;
+						bindingFunctions.push(resourceHandler(node, bindingValues));
+					} else if (name.startsWith('each:')) {
+						generatedSubComponent = true;
+						bindingFunctions.push(listHandler(node, bindingValues, name));
 					} else {
 						if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
 							const { parts, indices } = splitTemplate(value);
-							bindingFunctions.push((bindingValues, node) => {
+							bindingFunctions.push((bindingValues, node, context) => {
 								const expressions = [];
 								for (const index of indices) {
-									expressions.push(convertToSignal(bindingValues[index]));
+									expressions.push(convertToSignal(bindingValues[index], context));
 								}
-								return effect.UI(() => {
+								return effect.UI(wrapInContext(() => {
 									let newValue = '';
 									let index = 0;
 									for (const part of parts) {
@@ -134,19 +155,16 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 										index++;
 									}
 									node.setAttribute(name, newValue);
-								});
+								}, context));
 							});
 						} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
-							handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+							handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
 								if (typeof bindingValue === 'function' && isWebComponent(node)) {
 									node.setAttribute(name, bindingValue, true);
 								}
 								else {
-									const bindingValueSignal = convertToSignal(bindingValue);
-									return effect.UI(() => {
-										const replacement = isSignal(bindingValueSignal) ? bindingValueSignal.v : bindingValueSignal;
-										node.setAttribute(name, replacement);
-									});
+									const bindingValueSignal = convertToSignal(bindingValue, context);
+									return effect.UI(wrapInContext(() => node.setAttribute(name, bindingValueSignal.v), context));
 								}
 							});
 						}
@@ -159,7 +177,7 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 
 	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
-	if (isConditional) return { bindings, slots, plugs, styleElements };
+	if (generatedSubComponent) return { bindings, slots, plugs, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
 		const { bindings: childBindings, slots: childSlots, plugs: childPlugs, styleElements: childStyles } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
@@ -177,7 +195,9 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
 	if (!isWebComponent(element)) {
 		// Handle attribute changes
 		element.addEventListener('input', (e) => {
-			sig.v = element[boundAttrName];
+			sig.v = e.target.type === 'number' || e.target.type === 'range'
+				? Number(element[boundAttrName])
+				: element[boundAttrName];
 		});
 		return effect.UI(() => {
 			element[boundAttrName] = sig.v;
@@ -188,25 +208,31 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
 	}
 };
 
-const applyBindings = async (bindings, bindingValues, origin) => {
+const waitOverride = (element, func) => {
+	const tryFunc = (attempts = 0) => {
+		if (element.setAttribute !== HTMLElement.prototype.setAttribute) {
+			func();
+		} else if (attempts < 10) queueMicrotask(() => tryFunc(attempts + 1));
+		else console.error(`Too many attempts at waiting for the element to be upgraded`);
+	};
+	tryFunc();
+};
+
+const applyBindings = async (bindings, bindingValues, origin, context, parentName) => {
 	const cleanups = [];
 	if (bindings.length) {
 		for (const { index, bindingFunctions } of bindings) {
 			const element = getNodeAtIndex(index, origin);
 			if (isWebComponent(element)) {
-				const tryApplyBinding = (attempts = 0) => {
-					if (element.setAttribute !== HTMLElement.prototype.setAttribute) {
-						for (const func of bindingFunctions) {
-							const cleanup = func(bindingValues, element);
-							if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
-						}
-					} else if (attempts < 10) queueMicrotask(() => tryApplyBinding(attempts + 1));
-					else console.error(`Failed to apply binding on ${element.tagName}`);
-				};
-				tryApplyBinding();
+				waitOverride(element, () => {
+					for (const func of bindingFunctions) {
+						const cleanup = func(bindingValues, element, context, parentName);
+						if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
+					}
+				});
 			} else {
 				for (const func of bindingFunctions) {
-					const cleanup = func(bindingValues, element);
+					const cleanup = func(bindingValues, element, context, parentName);
 					if (cleanup && typeof cleanup === 'function') cleanups.push(cleanup);
 				}
 			}
@@ -250,74 +276,262 @@ const randomId = () => {
 };
 
 const conditionalHandler = (node, bindingValues) => {
-	const parseConditionValue = (attributeValue) => {
-		const match = attributeValue.match(/\{\{--(\d+)--\}\}/);
-		if (match) {
-			const bindingIndex = parseInt(match[1], 10);
-			return convertToSignal(bindingValues[bindingIndex]);
-		}
-		return signal(false);
+	// Parse condition index from placeholder syntax
+	const parseConditionIndex = (attributeValue) => {
+		const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
+		return match ? parseInt(match[1], 10) : undefined;
 	};
 
-	const createConditionalComponent = (blockContent) => {
-		const blockTemplate = document.createElement('template');
-		for (const node of blockContent) {
-			blockTemplate.content.appendChild(node.cloneNode(true));
-		}
+	// Create a component from nodes
+	const createComponent = (nodes) => {
+		const template = document.createElement('template');
+		for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
 
-		const blockBindings = findTemplateBindings(blockTemplate.content, bindingValues);
-
+		const bindings = findTemplateBindings(template.content, bindingValues);
 		return token(() => html([], ...bindingValues), {
-			template: blockTemplate.content,
-			...blockBindings
+			template: template.content,
+			...bindings
 		});
 	};
 
+	// Setup branch collection
+	const branches = [];
 	const childNodes = Array.from(node.childNodes);
-	const conditionBranches = [];
-	let currentBranchNodes = [];
-	let branchCondition = parseConditionValue(node.getAttribute('if'));
+	let currentNodes = [];
+	let conditionIndex = parseConditionIndex(node.getAttribute('if'));
 
+	// Remove the if attribute as it's been processed
 	node.removeAttribute('if');
 
-	for (const childNode of childNodes) {
-		const isBranchSeparator = childNode.tagName === 'BR' &&
+	// Process child nodes to identify branches
+	childNodes.forEach(childNode => {
+		const isBranchMarker = childNode?.tagName === 'BR' &&
 			(childNode.hasAttribute('else') || childNode.hasAttribute('elseif'));
 
-		if (isBranchSeparator) {
-			conditionBranches.push({
-				condition: branchCondition,
-				componentName: createConditionalComponent(currentBranchNodes)
+		if (isBranchMarker) {
+			// Store the current branch before starting a new one
+			branches.push({
+				conditionIndex,
+				component: createComponent(currentNodes)
 			});
 
-			currentBranchNodes = [];
-			branchCondition = childNode.hasAttribute('elseif') ?
-				parseConditionValue(childNode.getAttribute('elseif')) :
-				signal(true);
+			// Start a new branch
+			currentNodes = [];
+			conditionIndex = childNode.hasAttribute('elseif')
+				? parseConditionIndex(childNode.getAttribute('elseif'))
+				: null;
 		} else {
-			currentBranchNodes.push(childNode);
+			currentNodes.push(childNode);
 		}
-	}
+	});
 
-	if (currentBranchNodes.length > 0) {
-		conditionBranches.push({
-			condition: branchCondition,
-			componentName: createConditionalComponent(currentBranchNodes)
+	// Add the final branch (if any nodes remain)
+	if (currentNodes.length > 0) {
+		branches.push({
+			conditionIndex,
+			component: createComponent(currentNodes)
 		});
 	}
 
-	return (bindingValues, node) => {
+	// Return the binding function
+	return (bindingValues, node, context) => {
 		effect.UI(() => {
-			for (const branch of conditionBranches) {
-				if (branch.condition.v === true) {
-					const branchElement = document.createElement(branch.componentName);
-					branchElement.setAttribute('render', true);
-					node.innerHTML = '';
-					node.appendChild(branchElement);
+			// Clear existing content
+			node.innerHTML = '';
+
+			// Find and render the first matching branch
+			for (const branch of branches) {
+				const condition = convertToSignal(
+					branch.conditionIndex ? bindingValues[branch.conditionIndex] : signal(true),
+					context
+				);
+
+				if (condition.v) {
+					const element = document.createElement(branch.component);
+					element.setContext(context);
+					node.appendChild(element);
 					break;
 				}
 			}
 		});
+	};
+};
+
+const resourceHandler = (node, bindingValues) => {
+    // Parse resource index from placeholder syntax
+    const parseResourceIndex = (attributeValue) => {
+        const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
+        return match ? parseInt(match[1], 10) : undefined;
+    };
+
+    // Create a component from nodes
+	const createComponent = (nodes) => {
+		const template = document.createElement('template');
+		for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
+
+		const bindings = findTemplateBindings(template.content, bindingValues);
+		return token(() => html([], ...bindingValues), {
+			template: template.content,
+			...bindings
+		});
+	};
+
+    // Setup branch collection
+    const branches = {
+        data: null,
+        loading: null,
+        error: null
+    };
+    
+    const childNodes = Array.from(node.childNodes);
+    let currentNodes = [];
+    let currentState = 'data'; // Default state shows loading
+    
+    // Get the resource signal index
+    const resourceIndex = parseResourceIndex(node.getAttribute('await'));
+    
+    // Remove the resource attribute as it's been processed
+    node.removeAttribute('await');
+
+    // Process child nodes to identify branches
+    for (const childNode of node.childNodes) {
+        const isStateMarker = childNode?.tagName === 'BR' && 
+            (childNode.hasAttribute('loading') || childNode.hasAttribute('error'));
+
+        if (isStateMarker) {
+            // Store the current branch before starting a new one
+            branches[currentState] = createComponent(currentNodes);
+            
+            // Start a new branch
+            currentNodes = [];
+            currentState = childNode.hasAttribute('loading') ? 'loading' : 'error';
+        } else {
+            currentNodes.push(childNode);
+        }
+    }
+
+    // Add the final branch (if any nodes remain)
+    if (currentNodes.length > 0) {
+        branches[currentState] = createComponent(currentNodes);
+    }
+
+    // Return the binding function
+    return (bindingValues, node, context) => {
+        return effect.UI(() => {
+            // Clear existing content
+            node.innerHTML = '';
+
+            // Get the resource signal
+            const resource = convertToSignal(bindingValues[resourceIndex], context);
+            
+            // Determine which state to display
+            let componentToRender;
+            
+            if (resource.loading.v) {
+                componentToRender = branches.loading;
+            } else if (resource.error.v) {
+                componentToRender = branches.error;
+            } else if (resource.data.v) {
+                componentToRender = branches.data;
+            }
+            
+            // Render the appropriate component
+            if (componentToRender) {
+                const element = document.createElement(componentToRender);
+				node.appendChild(element);
+                element.setContext(context);
+            }
+        });
+    };
+};
+
+const listComponentCache = new Map();
+
+const listHandler = (node, bindingValues, name) => {
+	const iteratorName = name.substring(5);
+	let func;
+
+	let callback = (bindingValue, node, bindingValues, context, bindingIndex, parentName) => {
+		// Create a unique but compact template key using parent info and binding index
+		const templateKey = `${parentName}-${iteratorName}-${bindingIndex}`;
+
+		let componentName;
+
+		// Check if we already have a component for this exact template
+		if (listComponentCache.has(templateKey)) {
+			componentName = listComponentCache.get(templateKey);
+		} else {
+			// If not, create it and cache it
+			const template = document.createElement('template').content;
+
+			for (const child of node.childNodes) {
+				template.appendChild(child.cloneNode(true));
+			}
+
+			const listBindings = findTemplateBindings(template, bindingValues);
+
+			// Create the component definition once
+			componentName = token(() => html([], ...bindingValues), { template, ...listBindings });
+
+			// Store in cache for future use
+			listComponentCache.set(templateKey, componentName);
+		}
+
+		const length = computed(() => bindingValue.v.length);
+
+		effect.UI(() => {
+			node.innerHTML = '';
+			bindingValue = convertToSignal(bindingValue);
+
+			for (let i = 0; i < length.v; i++) {
+				const componentElement = document.createElement(componentName);
+				waitOverride(componentElement, () =>
+					componentElement.setContext({
+						[iteratorName]: bindingValue[i],
+						[iteratorName + "Index"]: i,
+						...context
+					})
+				);
+				node.appendChild(componentElement);
+			}
+		});
+	};
+
+	const match = node.getAttribute(`each:${iteratorName}`).match(/\{\{--(\d+)--\}\}/);
+	if (match) {
+		const index = parseInt(match[1], 10);
+		node.removeAttribute(name);
+		return (bindingValues, node, context, parentName) => callback(convertToSignal(bindingValues[index], context), node, bindingValues, context, index, parentName);
+	}
+	return func;
+};
+
+const wrapInContext = (fn, context) => {
+	if (!context) return fn;
+	return (...args) => {
+		// Store original values
+		const originalValues = {};
+		Object.keys(context).forEach(key => {
+			if (key in window) originalValues[key] = window[key];
+		});
+
+		// Add context properties
+		Object.assign(window, context);
+
+		let result;
+		try {
+			result = fn(...args);
+		} finally {
+			// Restore original state
+			Object.keys(context).forEach(key => {
+				if (key in originalValues) {
+					window[key] = originalValues[key];
+				} else {
+					delete window[key];
+				}
+			});
+		}
+		return result;
 	};
 };
 
@@ -328,11 +542,12 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 			return acc + str;
 		}
 		//if value is not a signal or a function just append it
-		if (!isSignal(bindingValues[i]) && typeof bindingValues[i] !== 'function') {
-			const sanitizedValue = typeof bindingValues[i] === 'string'
-				? sanitizeHTML(bindingValues[i])
-				: bindingValues[i];
-			return acc + str + sanitizedValue;
+		//but warn the user that the value is not reactive
+		if (typeof bindingValues[i] === 'string' || typeof bindingValues[i] === 'number') {
+			if (!str.endsWith('<') && !str.endsWith('</')) {
+				console.warn(`Value or variable containing "${bindingValues[i]}" after\n"...${(acc + str).substr(-200)}"\nis not reactive, is it what you intended?`);
+			}
+			return acc + str + sanitizeHTML(bindingValues[i]);
 		}
 
 		return acc + str + `'{{--${i}--}}'`;
@@ -365,9 +580,9 @@ const component = (name, factory, bypass = {}) => {
 		_props = {};
 		_mountHooks = [];
 		_unmountHooks = [];
-		_iterators = {}; //iterator object, contains all iterators to be used in list rendering
 		_content = null;
 		_templateRendererCalled = false;
+		_additionalContext = null;
 
 		constructor() {
 			instanceCount++;
@@ -391,43 +606,20 @@ const component = (name, factory, bypass = {}) => {
 				}
 			}
 
-			const props = {
-				...this._props,
-			};
-
-			const createTrackedEffect = (effectFn) => (...args) => {
-				const cleanup = effectFn(...args);
-				this._unmountHooks.push(cleanup);
-				return cleanup;
-			};
-
-			const trackedCleanupEffect = new Proxy(createTrackedEffect(effect), {
-				get(_, prop) {
-					if (prop === 'untrack') return effect.untrack;
-					const effectFn = effect[prop];
-					if (typeof effectFn === 'function') {
-						return createTrackedEffect(effectFn);
-					}
-					return effectFn;
-				}
-			});
-
 			const context = {
 				lifeCycle: {
 					onMount: (fn) => this._mountHooks.push(fn),
 					onUnmount: (fn) => this._unmountHooks.push(fn),
 				},
-				html: this.#templateRenderer,
-				i: this._iterators,
+				html: (strings, ...bindingValues) => this.#templateRenderer(strings, bindingValues, this._additionalContext),
 				signal,
 				computed,
-				effect: trackedCleanupEffect,
-				bound,
+				effect: this.#trackedCleanupEffect
 			};
 
-			const proxyProps = new Proxy(props, {
+			const proxyProps = new Proxy(this._props, {
 				//list all props that are accessed to check if they are set in the custom element in the html page
-				get(target, prop, receiver) {
+				get(target, prop) {
 					if (!(prop in target)) {
 						console.warn(`Property ${prop} is not set in the custom element`);
 					}
@@ -435,19 +627,27 @@ const component = (name, factory, bypass = {}) => {
 				}
 			});
 
-			const scopedFactory = () => {
-				Object.assign(globalThis, context);
-				try {
-					factory(proxyProps, context);
-				} finally {
-					Object.keys(context).forEach(key => { delete globalThis[key]; });
-				}
-			};
-
-			scopedFactory();
+			wrapInContext(() => factory(proxyProps, context), context)();
 		}
 
-		#templateRenderer = (strings, ...bindingValues) => {
+		#createTrackedEffect = (effectFn) => (...args) => {
+			const cleanup = effectFn(...args);
+			this._unmountHooks.push(cleanup);
+			return cleanup;
+		};
+
+		#trackedCleanupEffect = new Proxy(this.#createTrackedEffect(effect), {
+			get: (_, prop) => {
+				if (prop === 'untrack') return effect.untrack;
+				const effectFn = effect[prop];
+				if (typeof effectFn === 'function') {
+					return this.#createTrackedEffect(effectFn);
+				}
+				return effectFn;
+			}
+		});
+
+		#templateRenderer = (strings, bindingValues) => {
 			if (this._templateRendererCalled === true) {
 				console.error('html() can only be called once inside a component');
 				return;
@@ -464,7 +664,7 @@ const component = (name, factory, bypass = {}) => {
 		#generateCopy = async (bindingValues) => {
 			const copy = template.cloneNode(true);
 
-			const cleanups = await applyBindings(bindings, bindingValues, copy);
+			const cleanups = await applyBindings(bindings, bindingValues, copy, this._additionalContext, name);
 			this._unmountHooks.push(...cleanups);
 
 			const plugElementsArray = plugs.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]);
@@ -517,10 +717,15 @@ const component = (name, factory, bypass = {}) => {
 			plugs = foundPlugs;
 		};
 
+		setContext(context) {
+			this._additionalContext = context;
+			this.#prepareContent();
+		}
+
 		setAttribute(name, value, bind = false) {
 			if (name === 'render' && value === true) {
 				this.#prepareContent();
-				//this._props[name] = signal(value);
+
 				return;
 			}
 
@@ -559,7 +764,6 @@ const component = (name, factory, bypass = {}) => {
 
 		connectedCallback() {
 			this.id = randomId();
-
 			this.style.display = 'contents';
 
 			if (this.getAttribute('render') === '') {
@@ -584,10 +788,12 @@ const token = (factoryOrString, bypassOrFactory, bypass) => {
 	if (typeof factoryOrString === 'string' && typeof bypassOrFactory === 'function') {
 		return component(factoryOrString, bypassOrFactory, bypass);
 	} else if (typeof factoryOrString === 'function' && (!bypassOrFactory || typeof bypassOrFactory === 'object')) {
-		return component(`tok-${randomId()}-${randomId()}`, factoryOrString, bypassOrFactory);
-	} else {
-		console.error('Invalid arguments passed to token()', factoryOrString, bypassOrFactory, bypass);
+		let name;
+		do name = `tok-${randomId()}-${randomId()}`;
+		while (registeredComponentList.has(name));
+		return component(name, factoryOrString, bypassOrFactory);
 	}
+	console.error('Invalid arguments passed to token()', factoryOrString, bypassOrFactory, bypass);
 };
 
 export {

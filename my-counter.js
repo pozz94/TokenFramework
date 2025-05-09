@@ -1,4 +1,4 @@
-import {token, signal} from './framework/token.js';
+import {token, signal, effect} from './framework/token.js';
 import MyTest from './my-test.js';
 
 const testGlobalSignal = signal('Hello World');
@@ -13,7 +13,6 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 	const input = signal('Hello World');
 
 	const URL = computed(() => `https://jsonplaceholder.typicode.com/todos/${count.v}`);
-
 	const APIData = computed.fromResource(URL);
 
 	const title = computed(() => {
@@ -22,7 +21,11 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 		else if (APIData.error.v)
 			return 'error';
 		else
-			return APIData.v?.title;
+			return APIData.data.v?.title;
+	});
+
+	effect(() => {
+		console.log('title', title.v);
 	});
 
 	const decrement = () => {
@@ -78,8 +81,27 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}></${MyTest}>
 
+
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
-				<p class="font-medium mb-2">${title}</p>
+				<p await=${APIData} class="font-medium">
+					${()=>APIData.data.title}
+				<br loading>
+					loading...
+				<br error>
+					error.
+				</p>
 			</div>
+				
+			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
+				<p if=${APIData.loading} class="font-medium">
+					loading...
+				<br elseif=${APIData.error}>
+					error.
+				<br else>
+					${()=>APIData.data.title}
+				</p>
+			</div>
+
+
 		</div>`;
 });
