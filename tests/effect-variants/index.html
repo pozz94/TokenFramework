@@ -40,7 +40,7 @@
     </div>
 
     <script type="module">
-        import token from '../../src/token.js';
+        import token from '../../dist/token.js';
         
         // Test component
         token('effect-variants-test', () => {
@@ -70,7 +70,7 @@
                 console.log(`Regular effect: ${testSignal.v}`);
                 
                 // Track updates - using untrack to prevent circular dependency
-                effect.untrack(() => {
+                untrack(() => {
                     regularUpdates.v++;
                     
                     // Record update in history
@@ -84,7 +84,7 @@
             effect.throttled(() => {
                 console.log(`Throttled effect: ${testSignal.v}`);
                 
-                effect.untrack(() => {
+                untrack(() => {
                     throttledUpdates.v++;
                     
                     // Record update in history
@@ -98,7 +98,7 @@
             effect.debounced(() => {
                 console.log(`Debounced effect: ${testSignal.v}`);
                 
-                effect.untrack(() => {
+                untrack(() => {
                     debouncedUpdates.v++;
                     
                     // Record update in history
@@ -112,7 +112,7 @@
             effect.UI(() => {
                 console.log(`UI effect: ${testSignal.v}`);
                 
-                effect.untrack(() => {
+                untrack(() => {
                     uiUpdates.v++;
                     
                     // Record update in history

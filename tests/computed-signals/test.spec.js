@@ -61,8 +61,8 @@ test('computed.fromResource', async ({ page }) => {
   // Check that result contains expected data
   const resultText = await page.locator('#fetch-result').textContent();
   const result = JSON.parse(resultText);
-  expect(result).toHaveProperty('id');
-  expect(result).toHaveProperty('title');
+  expect(result.data).toHaveProperty('id');
+  expect(result.data).toHaveProperty('title');
   
   // Test with invalid URL
   await page.fill('#api-url', 'https://invalid-url-that-doesnt-exist/');

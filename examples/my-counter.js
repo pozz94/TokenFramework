@@ -1,4 +1,4 @@
-import {token, signal} from '../src/token.js';
+import { token, signal } from '../dist/token.js';
 import MyTest from './my-test.js';
 
 const testGlobalSignal = signal('Hello World');
@@ -33,8 +33,8 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 	};
 
 	const changeColor = () => {
-        color.v = color.v === 'text-black' ? 'text-red-500' : 'text-black';
-    };
+		color.v = color.v === 'text-black' ? 'text-red-500' : 'text-black';
+	};
 
 	const handler = async () => {
 		const data = await fetch('https://jsonplaceholder.typicode.com/todos/1');
@@ -48,6 +48,24 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 		count.v;
 		runs++;
 	}, 5000);
+
+	const deep = signal({c: { a: "qwer" }});
+
+	const changeDeep1 = () => {
+		deep.c.a.v = deep.c.a.v === "qwer" ? "asdf" : "qwer";
+	}
+
+	const changeDeep2 = () => {
+		deep.c.v = deep.c.a.v === "qwer" ? { a: "asdf" } : { a: "qwer" };
+	}
+
+	effect(() => console.log("effect deeper", deep.v));
+	effect(() => console.log("effect deep", deep.c.v));
+	effect(() => console.log("effect", deep.c.a.v));
+
+	const addProperty = () => {
+		deep.c.b = "new property";
+	}
 
 	html`
 		<div class="max-w-md mx-auto p-6 bg-gray-100 rounded-lg shadow-md mb-6">
@@ -83,7 +101,7 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p await=${APIData} class="font-medium">
-					asdf ${()=>APIData.data.title}
+					asdf ${() => APIData.data.title}
 				<br loading>
 					loading...
 				<br error>
@@ -97,10 +115,13 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				<br elseif=${APIData.error}>
 					error.
 				<br else>
-					asdf ${()=>APIData.data.title}
+					asdf ${() => APIData.data.title}
 				</p>
 			</div>
 
-
+			<div>${deep.c.a}</div>
+			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${changeDeep1}>Change deep 1</button>
+			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${changeDeep2}>Change deep 2</button>
+			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${addProperty}>Add property</button>
 		</div>`;
 });

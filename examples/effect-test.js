@@ -1,4 +1,4 @@
-import token from '../src/token.js';
+import token from '../dist/token.js';
 
 token("effect-test", () => {
     const testSignal = signal(0);
@@ -16,7 +16,7 @@ token("effect-test", () => {
 
     effect(() => {
         if (active.v)
-            effect.untrack(() => interval = setInterval(() => {
+            untrack(() => interval = setInterval(() => {
                 if (active.v) testSignal.v++;
                 if (active.v) signalChanges.v++;
                 setTimeout(() => {
@@ -37,17 +37,17 @@ token("effect-test", () => {
 
     effect.throttled(() => {
         testThrottled.v = testSignal.v;
-        effect.untrack(() => throttledChanges.v++);
+        untrack(() => throttledChanges.v++);
     }, 1000);
 
     effect.debounced(() => {
         testDebounced.v = testSignal.v;
-        effect.untrack(() => debouncedChanges.v++);
+        untrack(() => debouncedChanges.v++);
     }, 1000);
 
     effect.UI(() => {
         testUI.v = testSignal.v;
-        effect.untrack(() => UIChanges.v++);
+        untrack(() => UIChanges.v++);
     });
 
     html`

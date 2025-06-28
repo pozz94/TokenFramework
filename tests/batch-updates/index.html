@@ -39,7 +39,7 @@
     </div>
 
     <script type="module">
-        import { token, signal, dirtyEffect } from '../../src/token.js';
+        import { token, signal, dirtyEffect } from '../../dist/token.js';
         
         // Test component
         token('batch-test', () => {
@@ -54,7 +54,7 @@
             dirtyEffect(() => {
                 // Reading counter forces this effect to run on each counter change
                 console.log(`Counter value: ${counter.v}`);
-                effect.untrack(()=>renderCount.v++);
+                untrack(()=>renderCount.v++);
             });
             
             // Run batched test: update counter 100 times in tight loop

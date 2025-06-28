@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Mark both failing tests with skip
-test.skip('deep object reactivity', async ({ page }) => {
+test('@skip deep object reactivity', async ({ page }) => {
   await page.goto('/tests/deep-reactivity');
   
   // Get initial state
@@ -26,7 +26,7 @@ test.skip('deep object reactivity', async ({ page }) => {
   expect(JSON.parse(objectWithNewProp)).toHaveProperty('job', 'Developer');
 });
 
-test.skip('array reactivity operations', async ({ page }) => {
+test('@skip array reactivity operations', async ({ page }) => {
   await page.goto('/tests/deep-reactivity');
   
   // Get initial array state with pushed item

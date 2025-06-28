@@ -70,7 +70,7 @@ test('multiple cycle test', async ({ page }) => {
 });
 
 test('effect cleanup functions are called', async ({ page }) => {
-    // This test should still work with your effect.untrack() implementation
+    // This test should still work with your untrack() implementation
     await page.goto('/tests/memory-management');
   
     // Reset counters to start clean

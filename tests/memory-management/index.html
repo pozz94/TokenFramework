@@ -53,7 +53,7 @@
     </div>
 
     <script type="module">
-        import { token, signal, dirtyEffect } from '../../src/token.js';
+        import { token, signal, dirtyEffect } from '../../dist/token.js';
 
         // Shared trigger for updates
         const updateTrigger = signal(0);
@@ -104,7 +104,7 @@
 
                 // Track effect run/rerun
                 if (updateTrigger.v > 0) {
-                    effect.untrack(() => metrics.effectsRerun.v++);
+                    untrack(() => metrics.effectsRerun.v++);
                 }
 
                 // Return a cleanup function

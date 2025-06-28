@@ -1,4 +1,4 @@
-import token from '../src/token.js';
+import token from '../dist/token.js';
 
 token("test-editor", ({ initialCode, title, expectedOutput }) => {
     //expectedOutput is the code that should be seen rendered in the iframe when the check button is clicked

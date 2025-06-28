@@ -1,4 +1,4 @@
-import token from '../src/token.js';
+import token from '../dist/token.js';
 import './test-editor.js';
 
 token('hello-world', () => {
