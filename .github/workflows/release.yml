@@ -26,12 +26,12 @@ jobs:
         
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
+
+      - name: Build packages
+        run: npm run build
         
       - name: Run tests
         run: npm run test:ci  # Use the CI-specific test command
-        
-      - name: Build packages
-        run: npm run build
         
       - name: Get version from package.json
         id: package-version
