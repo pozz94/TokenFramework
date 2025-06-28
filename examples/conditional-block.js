@@ -1,4 +1,4 @@
-import token from '../src/token.js';
+import token from '../dist/token.js';
 
 const tagName = 'h1';
 

@@ -1,40 +1,61 @@
 // signal.js
+
+/**
+ * Represents a node in a signal graph that can contain a value and be observed.
+ * 
+ * @template T - The type of value stored in this signal node
+ * @typedef {Object} SignalNode
+ * 
+ * @property {T} v - The current value of the signal
+ * 
+ * @property {function(callback: function(): void): SignalNode<T>} onFirstSubscriber - Registers a callback to be
+ *   executed when the first subscriber is added to this signal
+ * @property {function(callback: function(): void): SignalNode<T>} onLastSubscriberRemoved - Registers a callback to be
+ *   executed when the last subscriber is removed from this signal
+ * 
+ * @property {SignalNode<any>} [key: string] - Allows any property to be accessed as a signal
+ */
+
 let currentEffect = null;  // Explicitly initialize as null
 let pendingEffects = new Set();
 let isFlushing = false;
+
+const isObject = (obj) => obj && typeof obj === 'object';
+const isArray = (arr) => Array.isArray(arr);
+const isPlainObject = (obj) => isObject(obj) && Object.getPrototypeOf(obj) === Object.prototype;
+
+// Helper function to check if objects have the same keys
+function objectsHaveSameKeys(obj1, obj2) {
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+    return keys1.length === keys2.length && 
+           keys1.every(key => key in obj2);
+}
 
 // Core Signal Implementation
 /**
  * 
  * @param {*} initialValue - initial value of the signal
- * @param {*} equals - function to compare if the value has changed.
- * Default is strict equality but can be set to false to disable the check so that any change triggers an update 
- * or a custom function can be passed in for more advanced use cases.
  * @returns - signal object with get and set properties
  */
-function signal(initialValue, equals = (a, b) => a === b) {
+function signal(initialValue) {
 	class SignalNode {
 		#value;
-		#equals;
 		#subscribers = new Set();
 		#onFirstSubscriber = null
 		#onLastSubscriberRemoved = null
 		#readBy = new WeakSet();
 		#readWriteCycles = new Map();
-		#customProps = new Map();
-		#parent = null;
-		#parentKey = null;
 
-		constructor(initialValue, equals) {
-			this.#equals = equals;
+		constructor(initialValue) {
 			this.#setValue(initialValue);
 		}
 
 		#setValue(val) {
-			if (typeof val === 'object' && val !== null && (Array.isArray(val) || Object.getPrototypeOf(val) === Object.prototype)) {
-				if (Array.isArray(val)) {
+			if (isObject(val) && (isArray(val) || isPlainObject(val))) {
+				if (isArray(val)) {
 					// If current value isn't an array, create one
-					if (!Array.isArray(this.#value)) {
+					if (!isArray(this.#value)) {
 						this.#value = [];
 					}
 
@@ -43,7 +64,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 					for (let i = 0; i < val.length; i++) {
 						const item = val[i];
 
-						if (typeof item === 'object' && item !== null) {
+						if (isObject(item)) {
 							// Try to find a matching object in the existing array
 							const existingSignal = i < this.#value.length && isSignal(this.#value[i]) ?
 								this.#value[i] : null;
@@ -53,9 +74,8 @@ function signal(initialValue, equals = (a, b) => a === b) {
 								existingSignal.v = item;
 								newArray[i] = existingSignal;
 							} else {
-								// Create new signal
-								const nestedSignal = signal(item, this.#equals);
-								nestedSignal._setParent(this, i);
+								// Create new signal (with no parent connection)
+								const nestedSignal = signal(item);
 								newArray[i] = nestedSignal;
 							}
 						} else {
@@ -66,8 +86,9 @@ function signal(initialValue, equals = (a, b) => a === b) {
 				} else {
 					// For objects, preserve existing signals where possible
 					const newObj = {};
-					const existingObj = typeof this.#value === 'object' && this.#value !== null && !Array.isArray(this.#value) ?
-						this.#value : {};
+					const existingObj = isObject(this.#value) && !isArray(this.#value)
+						? this.#value
+						: {};
 
 					// First, process all properties in the new value
 					for (const key in val) {
@@ -83,27 +104,34 @@ function signal(initialValue, equals = (a, b) => a === b) {
 								existingSignal.v = propValue;
 								newObj[key] = existingSignal;
 							} else {
-								// Create new signal
-								const nestedSignal = signal(propValue, this.#equals);
-								nestedSignal._setParent(this, key);
+								// Create new signal (without parent connection)
+								const nestedSignal = signal(propValue);
 								newObj[key] = nestedSignal;
 							}
 						}
 					}
 
-					this.#value = newObj;
+					// Only create a new object if the current value isn't already an object
+					if (typeof this.#value !== 'object' || this.#value === null || isArray(this.#value)) {
+						this.#value = newObj;
+					} else {
+						// Update the existing object with new properties
+						for (const key in newObj) {
+							this.#value[key] = newObj[key];
+						}
+					}
 				}
 			} else {
 				this.#value = val;
 			}
 		}
 
-		_setParent(parent, key) {
-			//this.#parent = parent;
-			//this.#parentKey = key;
+		get v() {
+			// Unwrap nested signals when returning the value
+			return this.#unwrapValue(this.#value);
 		}
 
-		get v() {
+		subscribe () {
 			if (currentEffect) {
 				// Track that this effect has read from this signal
 				this.#readBy.add(currentEffect);
@@ -122,20 +150,17 @@ function signal(initialValue, equals = (a, b) => a === b) {
 					currentEffect.dependencies.add(this);
 				}
 			}
-
-			// Unwrap nested signals when returning the value
-			return this.#unwrapValue(this.#value);
 		}
 
 		// Helper method to unwrap signals recursively
 		#unwrapValue(value) {
 			// If not an object or null, return as is
-			if (typeof value !== 'object' || value === null || (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype)) {
+			if (!(isArray(value) || isPlainObject(value))) {
 				return value;
 			}
 
 			// Handle arrays
-			if (Array.isArray(value)) {
+			if (isArray(value)) {
 				return value.map(item => {
 					// If item is a signal, get its value and unwrap
 					if (isSignal(item)) {
@@ -157,7 +182,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 					}
 				}
 			}
-			
+
 			return result;
 		}
 
@@ -173,30 +198,39 @@ function signal(initialValue, equals = (a, b) => a === b) {
 					console.error('Stopped effect execution because of a potential infinite loop: Effect is repeatedly reading and writing to the same signal');
 					return; // Prevent the update to stop the infinite loop
 				}
-			}
-
-			const oldValue = this.#value;
-			this.#setValue(newValue); // This updates #value with processed nested signals
-
-			if (this.#equals === false || !this.#equals(oldValue, this.#value)) {
-				// Notify direct subscribers
-				queueEffects(this.#subscribers);
-
-				// Bubble changes upward to parent signals
-				if (this.#parent) {
-					// This will trigger parent effects without changing the parent's value
-					this.#parent.notifyChange();
+				
+				// Clean up old cycles periodically
+				if (this.#readWriteCycles.size > 100) {
+					// Clear cycles for effects that no longer exist
+					for (const [effect] of this.#readWriteCycles) {
+						if (!this.#subscribers.has(effect)) {
+							this.#readWriteCycles.delete(effect);
+						}
+					}
 				}
 			}
-		}
-		notifyChange() {
-			queueEffects(this.#subscribers);
 
-			// Continue propagation upward
-			if (this.#parent) {
-				//this.#parent.notifyChange();
+			// Only trigger updates for this specific level, not for nested changes
+			const oldValue = this.#value;
+
+			// For arrays, consider length changes as changes to this signal
+			// For objects, only consider direct property additions/removals
+			const hasChanged = oldValue !== newValue 
+				|| (isArray(newValue) && isArray(oldValue) && newValue.length !== oldValue.length)
+				|| (isObject(newValue) && isObject(oldValue) && !isArray(newValue) && !isArray(oldValue) 
+					&& !objectsHaveSameKeys(oldValue, newValue));
+
+			if (hasChanged) {
+				this.#setValue(newValue); // This updates #value with processed nested signals
+				queueEffects(this.#subscribers);
 			}
 		}
+
+		notifyChange() {
+			// Only notify direct subscribers, do not propagate up the tree
+			queueEffects(this.#subscribers);
+		}
+
 		onFirstSubscriber(cb) {
 			this.#onFirstSubscriber = cb;
 			// If we already have subscribers and this is the first time setting the callback,
@@ -212,24 +246,11 @@ function signal(initialValue, equals = (a, b) => a === b) {
 			return proxySignal; // Return the proxy for chaining
 		}
 
-		// Methods for custom properties
-		getCustomProp(key) {
-			return this.#customProps.get(key);
-		}
-
-		setCustomProp(key, value) {
-			this.#customProps.set(key, value);
-		}
-
-		hasCustomProp(key) {
-			return this.#customProps.has(key);
-		}
-
 		getSubscribers() {
 			return this.#subscribers;
 		}
 
-		_getValue() {
+		getValue() {
 			return this.#value; // Returns the internal structure with signals intact
 		}
 
@@ -237,85 +258,78 @@ function signal(initialValue, equals = (a, b) => a === b) {
 		isSame(otherSignal) {
 			// Compare the actual SignalNode instances, not the proxies
 			return this === (otherSignal && isSignal(otherSignal) ?
-				otherSignal._getInternalNode() : otherSignal);
-		}
-
-		_getInternalNode() {
-			return this;
+				otherSignal.getSelf() : otherSignal);
 		}
 	};
 
-	const signalNode = new SignalNode(initialValue, equals);
+	const signalNode = new SignalNode(initialValue);
 
 	const proxySignal = new Proxy(signalNode, {
 		get(target, prop) {
 			// Handle core signal methods
-			if (prop === 'v') return target.v;
+			if (prop === 'v') {target.subscribe(); return target.v;}
 			if (prop === 'onFirstSubscriber') return target.onFirstSubscriber.bind(target);
 			if (prop === 'onLastSubscriberRemoved') return target.onLastSubscriberRemoved.bind(target);
-			if (prop === '_setParent') return target._setParent.bind(target);
-			if (prop === '_getValue') return target._getValue.bind(target);
+			if (prop === 'getValue') return target.getValue.bind(target);
 			if (prop === 'isSame') return (other) => target.isSame(other);
-			if (prop === '_getInternalNode') return () => target;
-
-			// Check for custom properties directly on the signal
-			if (target.hasCustomProp(prop)) {
-				return target.getCustomProp(prop);
-			}
+			if (prop === 'getSelf') return () => target;
+			if (prop === 'val') return () => target.val();
 
 			// For other properties, access the underlying value
-			const internalValue = target._getValue ? target._getValue() : undefined;
+			const internalValue = target.getValue ? target.getValue() : undefined;
 
 			// If value is an object/array, handle property access based on the internal signal structure
-			if (typeof internalValue === 'object' && internalValue !== null) {
+			if (isObject(internalValue)) {
 				// Special handling for array methods
-				if (Array.isArray(internalValue) && typeof Array.prototype[prop] === 'function' &&
-					['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse'].includes(prop)) {
-					return function (...args) {
-						// For methods that add elements (push, unshift, splice)
-						if (prop === 'push' || prop === 'unshift' || (prop === 'splice' && args.length > 2)) {
-							// Wrap new objects in signals
-							const startIdx = prop === 'splice' ? 2 : 0;
-							for (let i = startIdx; i < args.length; i++) {
-								if (typeof args[i] === 'object' && args[i] !== null && !isSignal(args[i])) {
-									args[i] = signal(args[i]);
+				if (isArray(internalValue) && typeof Array.prototype[prop] === 'function') {
+					// Combine similar methods into arrays
+					const mutatingMethods = ['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse'];
+					const nonMutatingMethods = ['map', 'filter', 'find', 'forEach', 'some', 'every', 'reduce', 'reduceRight'];
+
+					if (mutatingMethods.includes(prop)) {
+						return function (...args) {
+							// For methods that add elements (push, unshift, splice)
+							if (prop === 'push' || prop === 'unshift' || (prop === 'splice' && args.length > 2)) {
+								// Wrap new objects in signals
+								const startIdx = prop === 'splice' ? 2 : 0;
+								for (let i = startIdx; i < args.length; i++) {
+									if (isObject(args[i]) && !isSignal(args[i])) {
+										args[i] = signal(args[i]);
+									}
 								}
 							}
-						}
 
-						// Apply the method directly to the internal array
-						const result = Array.prototype[prop].apply(internalValue, args);
+							// Apply the method directly to the internal array
+							const result = Array.prototype[prop].apply(internalValue, args);
 
-						// Just notify subscribers about the change 
-						target.notifyChange();
+							// Notify subscribers about the change to this array's structure
+							target.notifyChange();
 
-						return result;
-					};
-				}
+							return result;
+						};
+					}
+					if (nonMutatingMethods.includes(prop)) {
+						return function (...args) {
+							// For methods with callbacks (map, filter, find, etc.)
+							if (typeof args[0] === 'function') {
+								const originalCallback = args[0];
 
-				// Special handling for non-mutating array methods
-				if (Array.isArray(internalValue) && typeof Array.prototype[prop] === 'function' &&
-					['map', 'filter', 'find', 'forEach', 'some', 'every', 'reduce', 'reduceRight'].includes(prop)) {
-					return function (...args) {
-						// For methods with callbacks (map, filter, find, etc.)
-						if (typeof args[0] === 'function') {
-							const originalCallback = args[0];
+								// Replace the callback to handle signal objects
+								args[0] = function (item, index, array) {
+									// Call the original callback with the items directly
+									return originalCallback(item, index, array);
+								};
+							}
 
-							// Replace the callback to handle signal objects
-							args[0] = function (item, index, array) {
-								// Call the original callback with the items directly
-								return originalCallback(item, index, array);
-							};
-						}
-
-						// Call the original method
-						const result = Array.prototype[prop].apply(internalValue, args);
-						return result;
-					};
+							// Call the original method
+							const result = Array.prototype[prop].apply(internalValue, args);
+							return result;
+						};
+					}
 				}
 
 				// Handle numeric array indices
-				if (Array.isArray(internalValue) && !isNaN(Number(prop))) {
+				if (isArray(internalValue) && !isNaN(Number(prop))) {
 					const index = Number(prop);
 					if (index < internalValue.length) {
 						return internalValue[index]; // Return the signal, not the unwrapped value
@@ -343,9 +357,20 @@ function signal(initialValue, equals = (a, b) => a === b) {
 				return true;
 			}
 
-			// Store custom properties directly on the signal
-			if (prop !== 'v' && prop !== 'onFirstSubscriber' && prop !== 'onLastSubscriberRemoved') {
-				target.setCustomProp(prop, value);
+			// Handle dynamic property assignment
+			const internalValue = target.getValue();
+			if (isObject(internalValue)) {
+				// If property exists and is a signal, update its value
+				if (prop in internalValue && isSignal(internalValue[prop])) {
+					internalValue[prop].v = value;
+				} else {
+					// Create a new signal for this property
+					internalValue[prop] = isSignal(value) ? value : signal(value);
+                    
+					// Important: Only notify about direct changes to this object's structure
+					// Don't notify for changes to existing properties' values
+					queueEffects(target.getSubscribers());
+				}
 				return true;
 			}
 
@@ -356,7 +381,7 @@ function signal(initialValue, equals = (a, b) => a === b) {
 	return proxySignal;
 }
 
-const isSignal = (obj) => typeof obj === 'object' && obj !== null && 'v' in obj;
+const isSignal = (obj) => isObject(obj) && 'v' in obj;
 
 // Computed Values Implementation
 function computed(computeFn) {
@@ -391,7 +416,6 @@ function computed(computeFn) {
 		}
 	});
 
-	//return { get v() { return sourceSignal ? sourceSignal.v : s.v }, set v(newValue) { if (sourceSignal) sourceSignal.v = newValue } };
 	return new Proxy(s, {
 		get(target, prop) {
 			return sourceSignal ? sourceSignal[prop] : target[prop];
@@ -408,9 +432,9 @@ function computed(computeFn) {
 	});
 }
 
-const defaultFetcher = async (input) => {
-	// Handle request config objects
-	const { url, method = 'GET', body, headers = {}, signal } = input;
+const defaultFetcher = async (source) => {
+	const sourceValue = isSignal(source) ? source.v : source;
+	const { url, method = 'GET', body, headers = {}, signal } = typeof sourceValue === 'string' ? { url: sourceValue } : sourceValue;
 	const response = await fetch(url, {
 		method,
 		headers: {
@@ -427,39 +451,42 @@ const defaultFetcher = async (input) => {
 	return response.json();
 };
 
+/**
+ * Creates a resource signal that fetches data asynchronously.
+ * 
+ * @param {any} source - The source or configuration for fetching data.
+ * @param {function} [fetcher=defaultFetcher] - Optional custom fetcher function.
+ * @returns {SignalNode<{loading: boolean, error: any, data: any}> & {fetch: function(): void}} 
+ *   A signal with properties: loading, error, data, and a fetch() method to manually trigger a fetch.
+ */
 computed.fromResource = (source, fetcher = defaultFetcher) => {
-	const result = signal(undefined);
-	result.loading = signal(false);
-	result.error = signal(undefined);
-	result.data = result;
+	const result = signal({ loading: false, error: undefined, data: undefined });
 
-	//const result = signal({ loading: false, error: undefined, data: undefined });
+	let controller;
+
+	let fetchFunc = () => {
+		controller = new AbortController();
+		const localController = controller;
+
+		result.v = { loading: true, error: undefined, data: undefined };
+
+		fetcher(source)
+			.then(value => { if (!localController.signal.aborted && controller === localController) { result.v = { loading: false, data: value, error: undefined }; } })
+			.catch(err => { if (!localController.signal.aborted && controller === localController && err.name !== 'AbortError') { result.v = { loading: false, error: err, data: undefined }; } });
+	};
+
+	result.fetch = () => { controller?.abort(); fetchFunc(); };
 
 	let disposeEffect;
 
-	result.onFirstSubscriber(() => {
+	//result.onFirstSubscriber(() => {
 		disposeEffect = effect(() => {
-			const controller = new AbortController();
-			//const sourceValue = typeof source === 'string' ? source : source.v;
-			const sourceValue = {
-				...typeof source?.v === 'object' ? source.v : { url: typeof source?.v === 'string' ? source.v : typeof source === 'string' ? source : '' },
-				signal: controller.signal
-			}
-			result.loading.v = true;
-			result.error.v = undefined;
-			result.v = undefined;
-
-			//result.v = { loading: true, error: undefined, data: undefined };
-
-			fetcher(sourceValue)
-				.then(value => { if (!controller.signal.aborted) { result.loading.v = false; result.data.v = value } })
-				.catch(err => { if (!controller.signal.aborted && err.name !== 'AbortError') { result.loading.v = false; result.error.v = err } })
-			//.finally(() => { if (!controller.signal.aborted) result.loading.v = false });
+			fetchFunc();
 
 			// Cleanup function that aborts the request
-			return () => controller.abort();
+			return () => controller?.abort();
 		});
-	});
+	//});
 
 	result.onLastSubscriberRemoved(() => { if (disposeEffect) disposeEffect() });
 
@@ -499,22 +526,31 @@ function effect(fn) {
 	let cleanupFromFn = undefined;
 
 	const effectFn = () => {
-		// Run any existing cleanup from previous run
-		if (cleanupFromFn && typeof cleanupFromFn === 'function') {
-			cleanupFromFn();
-		}
-
-		cleanupDependencies(effectFn);
-		const previousEffect = currentEffect;  // Save previous effect
-		currentEffect = effectFn;
 		try {
-			const oldEffect = globalThis?.effect;
-			globalThis.effect = effect;
-			cleanupFromFn = fn(); // Store the cleanup function returned by fn
-			globalThis.effect = oldEffect;
-			return cleanupFromFn;
-		} finally {
-			currentEffect = previousEffect;  // Restore previous effect
+			// Run any existing cleanup from previous run
+			if (cleanupFromFn && typeof cleanupFromFn === 'function') {
+				cleanupFromFn();
+			}
+
+			cleanupDependencies(effectFn);
+			const previousEffect = currentEffect;  // Save previous effect
+			currentEffect = effectFn;
+			try {
+				const oldEffect = window?.effect;
+				const oldUntrack = window?.untrack;
+				window.effect = effect;
+				window.untrack = untrack; // Ensure untrack is available in the global scope
+				cleanupFromFn = fn();
+				window.effect = oldEffect;
+				window.untrack = oldUntrack; // Restore untrack
+			} catch (error) {
+				console.error('Effect execution failed:', error);
+				// Still restore currentEffect in finally block
+			} finally {
+				currentEffect = previousEffect;
+			}
+		} catch (error) {
+			console.error('Error in effect:', error);
 		}
 	};
 
@@ -542,10 +578,13 @@ effect.deferredGeneric = function (fn, executor) {
 	const execute = () => {
 		const previousEffect = currentEffect;
 		currentEffect = innerEffect;
-		const oldEffect = globalThis?.effect;
-		globalThis.effect = effect;
+		const oldEffect = window?.effect;
+		const oldUntrack = window?.untrack;
+		window.effect = effect;
+		window.untrack = untrack;
 		fn();
-		globalThis.effect = oldEffect;
+		window.effect = oldEffect;
+		window.untrack = oldUntrack;
 		if (currentEffect) dependencies = new Set(currentEffect.dependencies);
 		currentEffect = previousEffect;
 	};
@@ -609,7 +648,7 @@ effect.throttled = function (fn, delay) {
 	return () => { cleanup(); clearInterval(IntervalId); clearTimeout(timeoutId); };
 };
 
-effect.untrack = function (fn) {
+function untrack(fn) {
 	const previousEffect = currentEffect;
 	currentEffect = null;
 	try {
