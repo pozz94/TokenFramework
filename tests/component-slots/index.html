@@ -111,7 +111,7 @@
                         <w if=${showDefaultContent}>
                             <div>This is the <strong>default slot content</strong></div>
                             <p>You can put any content here.</p>
-                        <br else>
+                        <else>
                             <p>Content has been toggled.</p>
                         </w>
 
@@ -151,7 +151,7 @@
                         <!-- ${() => items.v.length === 0} -->
                         <w if=${() => items.v.length === 0}>
                             <div id="empty-message">No items available</div>
-                        <br else>
+                        <else>
                             <div id="item-count">Total items: ${() => items.v.length}</div>
                         </w>
 

@@ -338,7 +338,7 @@ const ifHandler = (node, bindingValues) => {
 
 	// Process child nodes to identify branches
 	for (const childNode of childNodes) {
-		const isBranchMarker = childNode?.tagName === 'BR' &&
+		const isBranchMarker = childNode?.tagName === 'TEMPLATE' &&
 			(childNode.hasAttribute('else') || childNode.hasAttribute('elseif'));
 
 		if (isBranchMarker) {
@@ -385,7 +385,7 @@ const resourceBranchGeneration = (node, bindingValues) => {
 	node.removeAttribute('await');
 
 	for (const childNode of childNodes) {
-		const isStateMarker = childNode?.tagName === 'BR' &&
+		const isStateMarker = childNode?.tagName === 'TEMPLATE' &&
 			(childNode.hasAttribute('loading') || childNode.hasAttribute('error'));
 
 		if (isStateMarker) {
@@ -481,7 +481,7 @@ const listHandler = (node, bindingValues, name) => {
 };
 
 const createTemplateFromLiteral = (strings, ...bindingValues) => {
-	const templateString = strings.reduce((acc, str, i) => {
+	let templateString = strings.reduce((acc, str, i) => {
 		// If we're at the last string piece and no more values, just append it
 		if (i >= bindingValues.length) {
 			return acc + str;
@@ -497,6 +497,19 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 
 		return acc + str + `'{{--${i}--}}'`;
 	}, '').replace(/[^\S\r\n]+/g, ' ');
+
+	// ========== PREPROCESSING STEP ==========
+	// Transform conditional directives to template tags
+	templateString = templateString.replace(/<(else|error|loading)(?:\s+if\s*=\s*(\'\{\{--\d+--\}\}\'?))?\s*\/?>/g, (match, directive, condition) => {
+		return condition 
+			? `<template ${directive}if=${condition}></template>`
+			: `<template ${directive}></template>`;
+	});
+
+	// Transform all other self-closing tags to have closing tags
+	templateString = templateString.replace(/<([a-zA-Z][a-zA-Z0-9-]*)\s*([^>]*?)\s*\/>/g, '<$1 $2></$1>');
+
+	// ========== END PREPROCESSING ==========
 
 	const template = document.createElement('template');
 	template.innerHTML = templateString;

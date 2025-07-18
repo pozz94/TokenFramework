@@ -55,9 +55,9 @@ token("my-list", ({ }) => {
                                         class="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-blue-500" 
                                         :value=${() => item.text}
                                     >
-                                    <w if=${() => item.completed}>
+                                    <div if=${() => item.completed} class="text-gray-900 ml-3 w-12 text-center border border-gray-300 rounded">
                                         ${() => blockIndex + 1}
-                                    </w>
+                                    </div>
                                     <button
                                         onclick=${() => list.v = list.filter(i => !i.isSame(item)).map(i => i.v)}
                                         class="text-gray-500 hover:text-red-500 ml-3"

@@ -37,37 +37,37 @@ token("conditional-block", ({}) => {
                     <h3 class="text-lg font-semibold text-pink-800">All Three Conditions Content</h3>
                     <div class="mt-2 text-pink-600">and this additional content too</div>
                 </div>
-            <br elseif=${()=>condition.v && otherCondition.v}>
+            <else if=${()=>condition.v && otherCondition.v}>
                 <div class="p-4 bg-yellow-100 rounded-md">
                     <h3 class="text-lg font-semibold text-yellow-800">First Two conditions Content</h3>
                     <div class="mt-2 text-yellow-600">and this additional content too</div>
                 </div>
-            <br elseif=${()=>condition.v && thirdCondition.v}>
+            <else if=${()=>condition.v && thirdCondition.v}>
                 <div class="p-4 bg-red-100 rounded-md">
                     <h3 class="text-lg font-semibold text-red-800">First and Third Condition Content</h3>
                     <div class="mt-2 text-red-600">and this additional content too</div>
                 </div>
-            <br elseif=${()=>otherCondition.v && thirdCondition.v}>
+            <else if=${()=>otherCondition.v && thirdCondition.v}>
                 <div class="p-4 bg-indigo-100 rounded-md">
                     <h3 class="text-lg font-semibold text-indigo-800">Second and Third Condition Content</h3>
                     <div class="mt-2 text-indigo-600">and this additional content too</div>
                 </div>
-            <br elseif=${condition}>
+            <else if=${condition}>
                 <div class="p-4 bg-blue-100 rounded-md">
                     <h3 class="text-lg font-semibold text-blue-800">First Condition Content</h3>
                     <div class="mt-2 text-blue-600">and this additional content too</div>
                 </div>
-            <br elseif=${otherCondition}>
+            <else if=${otherCondition}>
                 <div class="p-4 bg-green-100 rounded-md">
                     <h3 class="text-lg font-semibold text-green-800">Second Condition Content</h3>
                     <div class="mt-2 text-green-600">and this additional content too</div>
                 </div>
-            <br elseif=${thirdCondition}>
+            <else if=${thirdCondition}>
                 <div class="p-4 bg-purple-100 rounded-md">
                     <h3 class="text-lg font-semibold text-purple-800">Third Condition Content</h3>
                     <div class="mt-2 text-purple-600">Testing the third condition!</div>
                 </div>
-            <br else>
+            <else>
                 <div class="p-4 bg-gray-200 rounded-md">
                     <h3 class="text-lg font-semibold text-gray-800">Default Content</h3>
                     <div class="mt-2 text-gray-600">shown when nothing else matches</div>

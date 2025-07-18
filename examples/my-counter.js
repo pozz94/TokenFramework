@@ -97,14 +97,14 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				</div>
 			</div>
 
-			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}></${MyTest}>
+			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}/>
 
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p await=${APIData} class="font-medium">
 					asdf ${() => APIData.data.title}
-				<br loading>
+				<loading>
 					loading...
-				<br error>
+				<error>
 					error.
 				</p>
 			</div>
@@ -112,9 +112,9 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p if=${APIData.loading} class="font-medium">
 					loading...
-				<br elseif=${APIData.error}>
+				<else if=${APIData.error}>
 					error.
-				<br else>
+				<else>
 					asdf ${() => APIData.data.title}
 				</p>
 			</div>
@@ -123,5 +123,10 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${changeDeep1}>Change deep 1</button>
 			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${changeDeep2}>Change deep 2</button>
 			<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded" onclick=${addProperty}>Add property</button>
+			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
+			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
+			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
+			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
+			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
 		</div>`;
 });

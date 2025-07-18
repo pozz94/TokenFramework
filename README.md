@@ -172,7 +172,7 @@ Conditionally render elements based on signal values:
 html`
     <div if=${isLoggedIn}>
         Logged in as: ${username}
-    <br else>
+    <else>
         Please log in
     </div>
 `;
@@ -206,11 +206,11 @@ html`
     <div await=${APIData}>
         <!-- This renders when data is available -->
         <p>${()=>APIData.data}</p>
-    <br loading>
-        <!-- Loading state with <br loading> separator -->
+    <loading>
+        <!-- Loading state with <loading> separator -->
         Loading...
-    <br error>
-        <!-- Error state with <br error> separator -->
+    <error>
+        <!-- Error state with <error> separator -->
         Error loading data: ${()=>APIData.error}
     </div>
 `;
