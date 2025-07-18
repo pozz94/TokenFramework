@@ -1,4 +1,4 @@
-// signal.js
+import {wrapInContext} from './utils.js';
 
 /**
  * Represents a node in a signal graph that can contain a value and be observed.
@@ -536,13 +536,7 @@ function effect(fn) {
 			const previousEffect = currentEffect;  // Save previous effect
 			currentEffect = effectFn;
 			try {
-				const oldEffect = window?.effect;
-				const oldUntrack = window?.untrack;
-				window.effect = effect;
-				window.untrack = untrack; // Ensure untrack is available in the global scope
-				cleanupFromFn = fn();
-				window.effect = oldEffect;
-				window.untrack = oldUntrack; // Restore untrack
+				cleanupFromFn = wrapInContext(fn, { effect, untrack })();
 			} catch (error) {
 				console.error('Effect execution failed:', error);
 				// Still restore currentEffect in finally block
@@ -578,13 +572,7 @@ effect.deferredGeneric = function (fn, executor) {
 	const execute = () => {
 		const previousEffect = currentEffect;
 		currentEffect = innerEffect;
-		const oldEffect = window?.effect;
-		const oldUntrack = window?.untrack;
-		window.effect = effect;
-		window.untrack = untrack;
-		fn();
-		window.effect = oldEffect;
-		window.untrack = oldUntrack;
+		wrapInContext(fn, { effect, untrack })();
 		if (currentEffect) dependencies = new Set(currentEffect.dependencies);
 		currentEffect = previousEffect;
 	};
