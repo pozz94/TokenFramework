@@ -459,7 +459,7 @@ const defaultFetcher = async (source) => {
  * @returns {SignalNode<{loading: boolean, error: any, data: any}> & {fetch: function(): void}} 
  *   A signal with properties: loading, error, data, and a fetch() method to manually trigger a fetch.
  */
-computed.fromResource = (source, fetcher = defaultFetcher) => {
+computed.fromAPI = (source, fetcher = defaultFetcher) => {
 	const result = signal({ loading: false, error: undefined, data: undefined });
 
 	let controller;

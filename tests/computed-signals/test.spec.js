@@ -46,7 +46,7 @@ test('computed with source signal', async ({ page }) => {
   expect(await page.locator('#derived-value').textContent()).toBe('TESTING');
 });
 
-test('computed.fromResource', async ({ page }) => {
+test('computed.fromAPI', async ({ page }) => {
   await page.goto('/tests/computed-signals');
   
   // Click fetch button

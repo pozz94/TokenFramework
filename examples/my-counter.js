@@ -12,8 +12,8 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 	const color = signal('text-black');
 	const input = signal('Hello World');
 
-	const URL = computed(() => `https://jsonplaceholder.typicode.com/todos/${count.v}`);
-	const APIData = computed.fromResource(URL);
+	//const URL = computed(() => `https://jsonplaceholder.typicode.com/todos/${count.v}`);
+	const APIData = computed.fromAPI(url`https://jsonplaceholder.typicode.com/todos/${count}`);
 
 	const title = computed(() => {
 		if (APIData.loading.v)
@@ -128,5 +128,6 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
-		</div>`;
+		</div>
+	`;
 });

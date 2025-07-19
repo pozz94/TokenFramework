@@ -198,8 +198,7 @@ TokenJS provides built-in support for async data with loading and error states:
 
 ```javascript
 // In your component
-const URL = computed(() => `https://yourAPI/${count.v}`);
-const APIData = computed.fromResource(URL);
+const APIData = computed.fromAPI(url`https://yourAPI/${count}`);
 
 // Using await attribute with loading/error branches
 html`

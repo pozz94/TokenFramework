@@ -1,5 +1,5 @@
 import { signal, computed, effect, isSignal } from './signal.js';
-import {wrapInContext} from './utils.js';
+import { wrapInContext } from './utils.js';
 
 const isWebComponent = (element) => element instanceof HTMLElement && element.tagName.includes('-');
 
@@ -500,11 +500,13 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 
 	// ========== PREPROCESSING STEP ==========
 	// Transform conditional directives to template tags
-	templateString = templateString.replace(/<(else|error|loading)(?:\s+if\s*=\s*(\'\{\{--\d+--\}\}\'?))?\s*\/?>/g, (match, directive, condition) => {
-		return condition 
-			? `<template ${directive}if=${condition}></template>`
-			: `<template ${directive}></template>`;
-	});
+	templateString = templateString.replace(
+		/<(else|error|loading)(?:\s+if\s*=\s*(\'\{\{--\d+--\}\}\'?))?\s*\/?>/g,
+		(match, directive, condition) =>
+			directive === 'else' && condition
+				? `<template elseif=${condition}></template>`
+				: `<template ${directive}></template>`
+	);
 
 	// Transform all other self-closing tags to have closing tags
 	templateString = templateString.replace(/<([a-zA-Z][a-zA-Z0-9-]*)\s*([^>]*?)\s*\/>/g, '<$1 $2></$1>');
@@ -515,6 +517,18 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 	template.innerHTML = templateString;
 
 	return template.content;
+};
+
+// A tagged template literal function to create signal containing a url that auto updates from a template string
+const url = (strings, ...values) => {
+	const signals = values.map(convertToSignal);
+	return computed(() => {
+		let url = strings[0];
+		for (let i = 0; i < values.length; i++) {
+			url += encodeURIComponent(signals[i].v) + (strings[i + 1] || '');
+		}
+		return url;
+	});
 };
 
 const registeredComponentList = new Set();
@@ -568,6 +582,7 @@ const component = (name, factory, bypass = {}) => {
 					onUnmount: (fn) => this.#unmountHooks.push(fn),
 				},
 				html: (strings, ...bindingValues) => this.#templateRenderer(strings, bindingValues),
+				url,
 				signal,
 				computed,
 				effect: this.#trackedCleanupEffect
@@ -763,4 +778,5 @@ export {
 	signal,
 	computed,
 	effect as dirtyEffect,
+	url,
 };

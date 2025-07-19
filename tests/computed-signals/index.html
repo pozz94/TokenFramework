@@ -66,7 +66,7 @@
     </div>
 
     <div class="test-section">
-        <h2>Computed.fromResource</h2>
+        <h2>Computed.fromAPI</h2>
         <div>
             <p>API URL: <input id="api-url" type="text" value="https://jsonplaceholder.typicode.com/todos/1"></p>
             <button id="fetch-data">Fetch Data</button>
@@ -148,10 +148,10 @@
             console.log('Source Index:', sourceIndex.v);
         });
 
-        // ===== Computed.fromResource Test =====
+        // ===== Computed.fromAPI Test =====
         const apiUrl = signal('https://jsonplaceholder.typicode.com/todos/1');
         const fetchRequest = computed(() => ({ url: apiUrl.v }));
-        const resource = computed.fromResource(fetchRequest);
+        const resource = computed.fromAPI(fetchRequest);
         
         // Display fetch status and result
         dirtyEffect(() => {
