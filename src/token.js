@@ -1,4 +1,5 @@
 import { signal, computed, effect, isSignal } from './signal.js';
+import { scopeCSS } from './cssProcessing.js';
 import { wrapInContext } from './utils.js';
 
 const isWebComponent = (element) => element instanceof HTMLElement && element.tagName.includes('-');
@@ -543,6 +544,8 @@ const component = (name, factory, bypass = {}) => {
 
 	let template = bypass?.template || null;
 	let styleElement = null;
+	let globalStyleElement = null;
+	let scopeClassName = null;
 	let instanceCount = 0;
 	let bindings = bypass?.bindings || [];
 	let slots = bypass?.slots || [];
@@ -678,17 +681,44 @@ const component = (name, factory, bypass = {}) => {
 			// Handle styles
 			if (styleElements.length > 0) {
 				const combinedStyles = styleElements
+					.filter(style => !style.hasAttribute('global'))
 					.map(style => style.textContent)
 					.join('\n');
 
+				const {combinedStylesScoped, scopeClass} = scopeCSS(combinedStyles, name);
+
+				scopeClassName = scopeClass;
+
 				styleElement = document.createElement('style');
 				styleElement.setAttribute('data-component', name);
-				styleElement.textContent = combinedStyles;
+				styleElement.textContent = combinedStylesScoped;
 				document.head.appendChild(styleElement);
+
+				const combinedGlobalStyles = styleElements
+					.filter(style => style.hasAttribute('global'))
+					.map(style => style.textContent)
+					.join('\n');
+
+				globalStyleElement = document.createElement('style');
+				globalStyleElement.setAttribute('data-component', name);
+				globalStyleElement.setAttribute('global', '');
+				globalStyleElement.textContent = combinedGlobalStyles;
+				document.head.appendChild(globalStyleElement);
 
 				// Remove style elements from template
 				styleElements.forEach(style => style.remove());
 			}
+
+			const walk = (fragment) => {
+				Array.from(fragment.childNodes).forEach(node => {
+					if (node.nodeType === Node.ELEMENT_NODE) {
+						node.classList.add(scopeClassName);
+						walk(node);
+					}
+				});
+			};
+
+			walk(template);
 
 			bindings = foundBindings;
 			slots = foundSlots;
@@ -752,6 +782,8 @@ const component = (name, factory, bypass = {}) => {
 			if (instanceCount === 0 && styleElement) {
 				styleElement.remove();
 				styleElement = null;
+				globalStyleElement.remove();
+				globalStyleElement = null;
 			}
 			this.#unmountHooks.forEach(hook => hook());
 		}

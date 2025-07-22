@@ -1,4 +1,4 @@
-import {wrapInContext} from './utils.js';
+import { wrapInContext } from './utils.js';
 
 /**
  * Represents a node in a signal graph that can contain a value and be observed.
@@ -26,11 +26,22 @@ const isPlainObject = (obj) => isObject(obj) && Object.getPrototypeOf(obj) === O
 
 // Helper function to check if objects have the same keys
 function objectsHaveSameKeys(obj1, obj2) {
-    const keys1 = Object.keys(obj1);
-    const keys2 = Object.keys(obj2);
-    return keys1.length === keys2.length && 
-           keys1.every(key => key in obj2);
+	const keys1 = Object.keys(obj1);
+	const keys2 = Object.keys(obj2);
+	return keys1.length === keys2.length &&
+		keys1.every(key => key in obj2);
 }
+
+//const infiniteSignalProxy = new Proxy({}, {
+//	get(_, prop) {
+//		if (prop === 'v') return undefined;
+//		if (prop === 'onFirstSubscriber' || prop === 'onLastSubscriberRemoved') return null;
+//        if (prop === 'getValue') return () => undefined;
+//        if (prop === 'isSame') return () => false;
+//        if (prop === 'getSelf') return () => infiniteSignalProxy;
+//		return infiniteSignalProxy;
+//	}
+//});
 
 // Core Signal Implementation
 /**
@@ -41,6 +52,7 @@ function objectsHaveSameKeys(obj1, obj2) {
 function signal(initialValue) {
 	class SignalNode {
 		#value;
+		#fakeProperties = {}; // Used to store properties that are not yet defined but requested
 		#subscribers = new Set();
 		#onFirstSubscriber = null
 		#onLastSubscriberRemoved = null
@@ -65,6 +77,8 @@ function signal(initialValue) {
 						const item = val[i];
 
 						if (isObject(item)) {
+							this.realizeFakeProperty(i); // Ensure the property is realized if it was requested before
+
 							// Try to find a matching object in the existing array
 							const existingSignal = i < this.#value.length && isSignal(this.#value[i]) ?
 								this.#value[i] : null;
@@ -94,6 +108,8 @@ function signal(initialValue) {
 					for (const key in val) {
 						if (Object.prototype.hasOwnProperty.call(val, key)) {
 							const propValue = val[key];
+
+							this.realizeFakeProperty(key); // Ensure the property is realized if it was requested before
 
 							// Check if we have an existing signal for this property
 							const existingSignal = key in existingObj && isSignal(existingObj[key]) ?
@@ -131,7 +147,7 @@ function signal(initialValue) {
 			return this.#unwrapValue(this.#value);
 		}
 
-		subscribe () {
+		subscribe() {
 			if (currentEffect) {
 				// Track that this effect has read from this signal
 				this.#readBy.add(currentEffect);
@@ -198,7 +214,7 @@ function signal(initialValue) {
 					console.error('Stopped effect execution because of a potential infinite loop: Effect is repeatedly reading and writing to the same signal');
 					return; // Prevent the update to stop the infinite loop
 				}
-				
+
 				// Clean up old cycles periodically
 				if (this.#readWriteCycles.size > 100) {
 					// Clear cycles for effects that no longer exist
@@ -215,9 +231,9 @@ function signal(initialValue) {
 
 			// For arrays, consider length changes as changes to this signal
 			// For objects, only consider direct property additions/removals
-			const hasChanged = oldValue !== newValue 
+			const hasChanged = oldValue !== newValue
 				|| (isArray(newValue) && isArray(oldValue) && newValue.length !== oldValue.length)
-				|| (isObject(newValue) && isObject(oldValue) && !isArray(newValue) && !isArray(oldValue) 
+				|| (isObject(newValue) && isObject(oldValue) && !isArray(newValue) && !isArray(oldValue)
 					&& !objectsHaveSameKeys(oldValue, newValue));
 
 			if (hasChanged) {
@@ -254,6 +270,27 @@ function signal(initialValue) {
 			return this.#value; // Returns the internal structure with signals intact
 		}
 
+		setFakeProperty(prop) { //used to add a signal object that has not been created yet but has been requested
+			this.#fakeProperties[prop] = signal(undefined);
+		}
+
+		realizeFakeProperty(prop) {
+			if (!(prop in this.#fakeProperties)) return;
+			if (this.#value === undefined) this.#value = {};
+			this.#value[prop] = this.#fakeProperties[prop];
+			delete this.#fakeProperties[prop];
+		}
+
+		// Add this method to check for fake properties
+		hasFakeProperty(prop) {
+			return prop in this.#fakeProperties;
+		}
+
+		// Add this method to get fake property
+		getFakeProperty(prop) {
+			return this.#fakeProperties[prop];
+		}
+
 		// Add to SignalNode class
 		isSame(otherSignal) {
 			// Compare the actual SignalNode instances, not the proxies
@@ -267,7 +304,7 @@ function signal(initialValue) {
 	const proxySignal = new Proxy(signalNode, {
 		get(target, prop) {
 			// Handle core signal methods
-			if (prop === 'v') {target.subscribe(); return target.v;}
+			if (prop === 'v') { target.subscribe(); return target.v; }
 			if (prop === 'onFirstSubscriber') return target.onFirstSubscriber.bind(target);
 			if (prop === 'onLastSubscriberRemoved') return target.onLastSubscriberRemoved.bind(target);
 			if (prop === 'getValue') return target.getValue.bind(target);
@@ -276,9 +313,8 @@ function signal(initialValue) {
 			if (prop === 'val') return () => target.val();
 
 			// For other properties, access the underlying value
-			const internalValue = target.getValue ? target.getValue() : undefined;
-
-			// If value is an object/array, handle property access based on the internal signal structure
+			const internalValue = target.getValue();
+			
 			if (isObject(internalValue)) {
 				// Special handling for array methods
 				if (isArray(internalValue) && typeof Array.prototype[prop] === 'function') {
@@ -328,21 +364,37 @@ function signal(initialValue) {
 					}
 				}
 
-				// Handle numeric array indices
+				// Handle array indices
 				if (isArray(internalValue) && !isNaN(Number(prop))) {
 					const index = Number(prop);
 					if (index < internalValue.length) {
-						return internalValue[index]; // Return the signal, not the unwrapped value
+						return internalValue[index];
+					} else {
+						// Check for existing fake property or create one
+						if (!target.hasFakeProperty(prop)) {
+							target.setFakeProperty(prop);
+						}
+						return target.getFakeProperty(prop);
 					}
 				}
 
-				// Return the nested signal for object properties
+				// Handle object properties
 				if (prop in internalValue) {
-					return internalValue[prop]; // Return the signal, not the unwrapped value
+					return internalValue[prop];
+				} else {
+					// Check for existing fake property or create one
+					if (!target.hasFakeProperty(prop)) {
+						target.setFakeProperty(prop);
+					}
+					return target.getFakeProperty(prop);
 				}
 			}
 
-			return undefined;
+			// For non-object values
+			if (!target.hasFakeProperty(prop)) {
+				target.setFakeProperty(prop);
+			}
+			return target.getFakeProperty(prop);
 		},
 
 		set(target, prop, value) {
@@ -360,18 +412,31 @@ function signal(initialValue) {
 			// Handle dynamic property assignment
 			const internalValue = target.getValue();
 			if (isObject(internalValue)) {
-				// If property exists and is a signal, update its value
-				if (prop in internalValue && isSignal(internalValue[prop])) {
+				// Check if this is a fake property being realized
+				if (target.hasFakeProperty(prop)) {
+					// Set the value on the fake signal and realize it
+					target.realizeFakeProperty(prop);
+					internalValue[prop].v = value;
+					queueEffects(target.getSubscribers());
+				} else if (prop in internalValue && isSignal(internalValue[prop])) {
+					// Update existing signal
 					internalValue[prop].v = value;
 				} else {
 					// Create a new signal for this property
 					internalValue[prop] = isSignal(value) ? value : signal(value);
-                    
-					// Important: Only notify about direct changes to this object's structure
-					// Don't notify for changes to existing properties' values
 					queueEffects(target.getSubscribers());
 				}
 				return true;
+			} else {
+				// For non-object values, handle fake properties
+				if (target.hasFakeProperty(prop)) {
+					target.realizeFakeProperty(prop);
+					internalValue[prop].v = value;
+					// Note: We don't realize fake properties on non-objects since they can't hold properties
+				} else {
+					// Create fake property and set its value
+					internalValue[prop].v = value;
+				}
 			}
 
 			return true;
@@ -480,12 +545,12 @@ computed.fromAPI = (source, fetcher = defaultFetcher) => {
 	let disposeEffect;
 
 	//result.onFirstSubscriber(() => {
-		disposeEffect = effect(() => {
-			fetchFunc();
+	disposeEffect = effect(() => {
+		fetchFunc();
 
-			// Cleanup function that aborts the request
-			return () => controller?.abort();
-		});
+		// Cleanup function that aborts the request
+		return () => controller?.abort();
+	});
 	//});
 
 	result.onLastSubscriberRemoved(() => { if (disposeEffect) disposeEffect() });

@@ -1,5 +1,7 @@
 import { token, signal } from '../dist/token.js';
 import MyTest from './my-test.js';
+import './my-slot.js';
+import { effect } from '../src/signal.js';
 
 const testGlobalSignal = signal('Hello World');
 const testGlobalChange = () => {
@@ -14,6 +16,10 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 	//const URL = computed(() => `https://jsonplaceholder.typicode.com/todos/${count.v}`);
 	const APIData = computed.fromAPI(url`https://jsonplaceholder.typicode.com/todos/${count}`);
+
+	effect(() => {
+		console.log('APIData', APIData.v);
+	});
 
 	const title = computed(() => {
 		if (APIData.loading.v)
@@ -101,7 +107,7 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p await=${APIData} class="font-medium">
-					asdf ${() => APIData.data.title}
+					asdf ${()=>APIData.data.title}
 				<loading>
 					loading...
 				<error>
@@ -113,9 +119,9 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				<p if=${APIData.loading} class="font-medium">
 					loading...
 				<else if=${APIData.error}>
-					error.
+					error. ${APIData.error}
 				<else>
-					asdf ${() => APIData.data.title}
+					asdf ${()=>APIData.data.title}
 				</p>
 			</div>
 
@@ -128,6 +134,11 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
 			<div class="border border-gray-300 p-2 rounded w-full mt-2"/>
+
+			<my-slot>
+				<p class="text-gray-600">This is a slot content.</p>
+				<p class="text-gray-600">This is another slot content.</p>
+			</my-slot>
 		</div>
 	`;
 });

@@ -10,11 +10,69 @@
         import './conditional-block.js';
         import './home-page.js';
         import './my-list.js';
+
+        import token from '../dist/token.js';
+
+        token('test-fake-properties', ()=> {
+            const testSignal = signal();
+
+            effect(()=> {
+                console.log('test-fake-properties', testSignal.v);
+                console.log('test-fake-property (asdf)', testSignal.asdf.v);
+                console.log('test-fake-property (qwer)', testSignal.qwer.v);
+                console.log('test-fake-property (zxcv)', testSignal.zxcv.v);
+                console.log('test-fake-property nested (asdf.asdf)', testSignal.asdf.asdf.v);
+                console.log('test-fake-property nested (qwer.qwer)', testSignal.qwer.qwer.v);
+                console.log('test-fake-property nested (zxcv.zxcv)', testSignal.zxcv.zxcv.v);
+            });
+
+            html`
+                <div class="space-x-2">
+                    <button class="button-blue" onclick=${()=> testSignal.asdf.v = 'asdf'}>Set asdf</button>
+                    <button class="button-blue" onclick=${()=> testSignal.qwer.v = 'qwer'}>Set qwer</button>
+                    <button class="button-blue" onclick=${()=> testSignal.zxcv.v = 'zxcv'}>Set zxcv</button>
+                    <button class="button-blue" onclick=${()=> testSignal.asdf.asdf.v = 'asdf.asdf'}>Set asdf.asdf</button>
+                    <button class="button-blue" onclick=${()=> testSignal.qwer.qwer.v = 'qwer.qwer'}>Set qwer.qwer</button>
+                    <button class="button-blue" onclick=${()=> testSignal.zxcv.zxcv.v = 'zxcv.zxcv'}>Set zxcv.zxcv</button>
+                    <!--<button class="bg-green-500 text-white px-4 py-2 rounded" onclick=${()=> testSignal.v = {asdf: {asdf: 'asdf.asdf'}}}>Set asdf.asdf alt</button>-->
+                    <button class="button-red" onclick=${()=> testSignal.asdf.v = undefined}>Unset asdf</button>
+                    <button class="button-red" onclick=${()=> testSignal.qwer.v = undefined}>Unset qwer</button>
+                    <button class="button-red" onclick=${()=> testSignal.zxcv.v = undefined}>Unset zxcv</button>
+                    <button class="button-red" onclick=${()=> testSignal.asdf.asdf.v = undefined}>Unset asdf.asdf</button>
+                    <button class="button-red" onclick=${()=> testSignal.qwer.qwer.v = undefined}>Unset qwer.qwer</button>
+                    <button class="button-red" onclick=${()=> testSignal.zxcv.zxcv.v = undefined}>Unset zxcv.zxcv</button>
+                </div>
+                <style>
+                    .button-blue {
+                        /*equivalent of tailwind bg-blue-500 text-white px-4 py-2 rounded*/
+                        background-color: #3b82f6; /* bg-blue-500 */
+                        color: white; /* text-white */
+                        padding: 0.5rem 1rem; /* px-4 py-2 */
+                        border-radius: 0.375rem; /* rounded */
+                    }
+                    .button-red {
+                        /*equivalent of tailwind bg-red-500 text-white px-4 py-2 rounded*/
+                        background-color: #ef4444; /* bg-red-500 */
+                        color: white; /* text-white */
+                        padding: 0.5rem 1rem; /* px-4 py-2 */
+                        border-radius: 0.375rem; /* rounded */
+                    }
+                    .button-green {
+                        /*equivalent of tailwind bg-green-500 text-white px-4 py-2 rounded*/
+                        background-color: #10b981; /* bg-green-500 */
+                        color: white; /* text-white */
+                        padding: 0.5rem 1rem; /* px-4 py-2 */
+                        border-radius: 0.375rem; /* rounded */
+                    }
+                </style>
+            `;
+        });
     </script>
 </head>
 
 <body>
     <div class="my-8">
+        <test-fake-properties render></test-fake-properties>
         <my-list render></my-list>
         <conditional-block render></conditional-block>
         <conditional-block render></conditional-block>
