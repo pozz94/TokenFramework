@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal System Test</title>
+</head>
+<body>
+    <h1>Signal System Test</h1>
+    <div id="output"></div>
+    <button id="increment">Increment</button>
+    <button id="updateName">Update Name</button>
+    <button id="pushItem">Push Item</button>
+
+    <script type="module">
+        import { signal, computed, dirtyEffect as effect } from '../dist/token.js';
+
+        const output = document.getElementById('output');
+        const log = (msg) => {
+            const div = document.createElement('div');
+            div.textContent = msg;
+            output.appendChild(div);
+            console.log(msg);
+        };
+
+        // Test 1: Basic signal
+        log('=== Test 1: Basic Signal ===');
+        const count = signal(0);
+        effect(() => {
+            log(`Count: ${count.v}`);
+        });
+
+        document.getElementById('increment').addEventListener('click', () => {
+            count.v++;
+        });
+
+        // Test 2: Object signal with property access
+        log('\n=== Test 2: Object Properties ===');
+        const user = signal({ name: 'Alice', age: 30 });
+        effect(() => {
+            log(`User name: ${user.name.v}`);
+        });
+        effect(() => {
+            log(`User age: ${user.age.v}`);
+        });
+
+        document.getElementById('updateName').addEventListener('click', () => {
+            user.name.v = (Math.random()*100).toString(36).substring(7);
+        });
+
+        // Test 3: Subscribe to non-existent property
+        log('\n=== Test 3: Future Property ===');
+        const state = signal({});
+        effect(() => {
+            log(`Future prop: ${state.futureProp.v ?? 'undefined'}`);
+        });
+
+        setTimeout(() => {
+            log('Setting future prop...');
+            state.futureProp.v = 'Now it exists!';
+        }, 2000);
+
+        // Test 4: Array signal
+        log('\n=== Test 4: Array ===');
+        const items = signal([1, 2, 3]);
+        effect(() => {
+            log(`Items: [${items.v.join(', ')}]`);
+        });
+
+        document.getElementById('pushItem').addEventListener('click', () => {
+            items.push(items.v.length + 1);
+        });
+
+        // Test 5: Computed signal
+        log('\n=== Test 5: Computed ===');
+        const doubled = computed(() => count.v * 2);
+        effect(() => {
+            log(`Doubled: ${doubled.v}`);
+        });
+
+        // Test 6: Deep property access
+        log('\n=== Test 6: Deep Properties ===');
+        const nested = signal({ user: { profile: { name: 'Charlie' } } });
+        effect(() => {
+            log(`Nested name: ${nested.user.profile.name.v}`);
+        });
+
+        setTimeout(() => {
+            log('Updating nested name...');
+            nested.user.profile.name.v = 'David';
+        }, 4000);
+
+        // Test 7: Writable computed (if implemented)
+        log('\n=== Test 7: Property Signal Stability ===');
+        const data = signal({ x: 10 });
+        const xSignal = data.x;
+        effect(() => {
+            log(`X via saved reference: ${xSignal.v}`);
+        });
+
+        setTimeout(() => {
+            log('Updating x via parent...');
+            data.v = { x: 20 };
+        }, 6000);
+
+    </script>
+</body>
+</html>

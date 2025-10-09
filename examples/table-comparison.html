@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Table Components Comparison</title>
+    <script type="module" src="../src/tableComponents.js"></script>
+    <script type="module" src="../src/tokenNew.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 2rem; }
+        .comparison { display: flex; gap: 2rem; margin: 2rem 0; }
+        .table-container { flex: 1; }
+        h2 { color: #333; }
+        h3 { color: #666; margin-top: 2rem; }
+        
+        /* Make tables more visible */
+        t-table, g-table { 
+            border: 2px solid #333; 
+            margin: 1rem 0;
+        }
+        t-cell, t-header { 
+            border: 1px solid #666; 
+            background: white;
+        }
+        t-header {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+        
+        .framework-example {
+            background: #f9f9f9;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+        
+        .error { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Table Components: CSS Table vs CSS Grid</h1>
+    
+    <h2>The Problem with colspan/rowspan</h2>
+    <p><strong>CSS Table Layout:</strong> Cannot implement colspan/rowspan with pure CSS - requires actual &lt;td&gt;/&lt;th&gt; elements.</p>
+    <p><strong>CSS Grid Layout:</strong> Native spanning support with <code>grid-column-end: span N</code> and <code>grid-row-end: span N</code>.</p>
+
+    <div class="comparison">
+        <div class="table-container">
+            <h3>❌ CSS Table (No Real Spanning)</h3>
+            <t-table>
+                <t-body>
+                    <t-row>
+                        <t-header colspan="2">Header Spanning 2 Cols</t-header>
+                        <t-header>Header 3</t-header>
+                    </t-row>
+                    <t-row>
+                        <t-cell>Cell 1</t-cell>
+                        <t-cell rowspan="2">Should Span 2 Rows</t-cell>
+                        <t-cell>Cell 3</t-cell>
+                    </t-row>
+                    <t-row>
+                        <t-cell>Cell 4</t-cell>
+                        <t-cell>Cell 6</t-cell>
+                    </t-row>
+                </t-body>
+            </t-table>
+            <p class="error">❌ colspan/rowspan attributes are ignored - no spanning happens</p>
+        </div>
+        
+        <div class="table-container">
+            <h3>✅ CSS Grid (Real Spanning + ARIA Roles)</h3>
+            <g-table>
+                <g-caption>Sample Grid Table with Spanning</g-caption>
+                <g-head>
+                    <g-row>
+                        <g-header colspan="2">Header Spanning 2 Cols</g-header>
+                        <g-header>Header 3</g-header>
+                    </g-row>
+                </g-head>
+                <g-body>
+                    <g-row>
+                        <g-cell>Cell 1</g-cell>
+                        <g-cell rowspan="2">Spans 2 Rows</g-cell>
+                        <g-cell>Cell 3</g-cell>
+                    </g-row>
+                    <g-row>
+                        <g-cell>Cell 4</g-cell>
+                        <g-cell>Cell 6</g-cell>
+                    </g-row>
+                </g-body>
+            </g-table>
+            <p class="success">✅ colspan/rowspan + proper ARIA roles + caption!</p>
+        </div>
+    </div>
+
+    <h2>Live Framework Integration</h2>
+    
+    <div class="framework-example">
+        <h3>CSS Table with Framework Directives</h3>
+        <div id="css-table-demo"></div>
+    </div>
+    
+    <div class="framework-example">
+        <h3>CSS Grid with Framework Directives + Spanning</h3>
+        <div id="css-grid-demo"></div>
+    </div>
+
+    <script type="module">
+        import { token } from '../src/tokenNew.js';
+
+        // Demo data
+        const tableData = token([
+            { name: 'John Doe', age: 30, city: 'New York' },
+            { name: 'Jane Smith', age: 25, city: 'London' },
+            { name: 'Bob Johnson', age: 35, city: 'Paris' }
+        ]);
+
+        const showTable = token(true);
+
+        // CSS Table Demo
+        const cssTableDemo = token`
+            <t-table>
+                <t-head>
+                    <t-row>
+                        <t-header>Name</t-header>
+                        <t-header>Age</t-header>
+                        <t-header>City</t-header>
+                    </t-row>
+                </t-head>
+                <t-body if=${showTable}>
+                    <t-row each:person=${tableData}>
+                        <t-cell>${() => person.name}</t-cell>
+                        <t-cell align="center">${() => person.age}</t-cell>
+                        <t-cell>${() => person.city}</t-cell>
+                    </t-row>
+                </t-body>
+            </t-table>
+            <button onclick=${() => showTable.set(!showTable.get())}>
+                Toggle Table
+            </button>
+        `;
+
+        // CSS Grid Demo with spanning and proper structure
+        const cssGridDemo = token`
+            <g-table>
+                <g-caption>Dynamic Person Directory (${() => tableData.get().length} people)</g-caption>
+                <g-head>
+                    <g-row>
+                        <g-header colspan="3">Person Directory</g-header>
+                    </g-row>
+                    <g-row>
+                        <g-header>Name</g-header>
+                        <g-header colspan="2">Details</g-header>
+                    </g-row>
+                </g-head>
+                <g-body if=${showTable}>
+                    <g-row each:person=${tableData}>
+                        <g-cell>${() => person.name}</g-cell>
+                        <g-cell>Age: ${() => person.age}</g-cell>
+                        <g-cell>City: ${() => person.city}</g-cell>
+                    </g-row>
+                </g-body>
+                <g-foot if=${() => tableData.get().length === 0}>
+                    <g-row>
+                        <g-cell colspan="3" align="center">No data available</g-cell>
+                    </g-row>
+                </g-foot>
+            </g-table>
+            <button onclick=${() => showTable.set(!showTable.get())}>
+                Toggle Table
+            </button>
+        `;
+
+        document.getElementById('css-table-demo').appendChild(cssTableDemo);
+        document.getElementById('css-grid-demo').appendChild(cssGridDemo);
+    </script>
+
+    <h2>Framework Integration Examples</h2>
+    
+    <h3>CSS Table Components (t-*)</h3>
+    <pre><code>&lt;t-table&gt;
+    &lt;t-body if=${showData}&gt;
+        &lt;t-row each:item=${items}&gt;
+            &lt;t-cell&gt;${() => item.name}&lt;/t-cell&gt;
+            &lt;t-cell align="right"&gt;${() => item.value}&lt;/t-cell&gt;
+        &lt;/t-row&gt;
+    &lt;/t-body&gt;
+&lt;/t-table&gt;</code></pre>
+
+    <h3>CSS Grid Components (g-*) - With Real Spanning</h3>
+    <pre><code>&lt;g-table&gt;
+    &lt;g-caption&gt;Sales Summary Report&lt;/g-caption&gt;
+    &lt;g-head&gt;
+        &lt;g-row&gt;
+            &lt;g-header colspan="2"&gt;Total Summary&lt;/g-header&gt;
+        &lt;/g-row&gt;
+    &lt;/g-head&gt;
+    &lt;g-body if=${showData}&gt;
+        &lt;g-row&gt;
+            &lt;g-cell&gt;${() => data.name}&lt;/g-cell&gt;
+            &lt;g-cell rowspan="2"&gt;${() => data.value}&lt;/g-cell&gt;
+        &lt;/g-row&gt;
+    &lt;/g-body&gt;
+&lt;/g-table&gt;</code></pre>
+
+    <h2>Recommendation</h2>
+    <p><strong>Use CSS Grid components</strong> (<code>g-table</code>, <code>g-cell</code>, <code>g-header</code>) when you need:</p>
+    <ul>
+        <li>✅ <strong>colspan or rowspan functionality</strong></li>
+        <li>✅ Complex table layouts with spanning</li>
+        <li>✅ Modern, flexible grid-based design</li>
+        <li>✅ Framework directives (if, await, each:)</li>
+    </ul>
+    
+    <p><strong>Use CSS Table components</strong> (<code>t-table</code>, <code>t-cell</code>, <code>t-header</code>) when you:</p>
+    <ul>
+        <li>✅ Don't need colspan/rowspan</li>
+        <li>✅ Want traditional table behavior</li>
+        <li>✅ Need semantic table roles for accessibility</li>
+        <li>✅ Framework directives (if, await, each:)</li>
+        <li>❌ <strong>No spanning support</strong></li>
+    </ul>
+
+    <h2>Component Summary</h2>
+    <table border="1" cellpadding="10" style="border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+            <tr style="background: #f0f0f0;">
+                <th>Feature</th>
+                <th>CSS Table (t-*)</th>
+                <th>CSS Grid (g-*)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>colspan/rowspan</strong></td>
+                <td style="color: red;">❌ Not supported</td>
+                <td style="color: green;">✅ Full support</td>
+            </tr>
+            <tr>
+                <td><strong>Framework directives</strong></td>
+                <td style="color: green;">✅ if, await, each:</td>
+                <td style="color: green;">✅ if, await, each:</td>
+            </tr>
+            <tr>
+                <td><strong>Semantic HTML</strong></td>
+                <td style="color: green;">✅ Native table roles</td>
+                <td style="color: green;">✅ ARIA table roles</td>
+            </tr>
+            <tr>
+                <td><strong>Accessibility</strong></td>
+                <td style="color: green;">✅ Screen reader friendly</td>
+                <td style="color: green;">✅ Screen reader friendly</td>
+            </tr>
+            <tr>
+                <td><strong>Row Groups</strong></td>
+                <td style="color: green;">✅ thead/tbody/tfoot</td>
+                <td style="color: green;">✅ g-head/g-body/g-foot</td>
+            </tr>
+            <tr>
+                <td><strong>Layout Method</strong></td>
+                <td style="color: green;">✅ CSS Table Display</td>
+                <td style="color: green;">✅ CSS Grid Layout</td>
+            </tr>
+            <tr>
+                <td><strong>Performance</strong></td>
+                <td style="color: green;">✅ Browser optimized</td>
+                <td style="color: green;">✅ Modern layout</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Untrack Test</title>
+</head>
+
+<body>
+    <h1>Untrack Test</h1>
+    
+    <div id="test-1">
+        <h2>Test 1: Untrack prevents dependency tracking</h2>
+        <p>Tracked value: <span id="tracked-value">0</span></p>
+        <p>Untracked value: <span id="untracked-value">0</span></p>
+        <p>Effect run count: <span id="effect-count">0</span></p>
+        <button id="increment-tracked">Increment Tracked</button>
+        <button id="increment-untracked">Increment Untracked</button>
+    </div>
+
+    <div id="test-2">
+        <h2>Test 2: Untrack in computed</h2>
+        <p>Source: <span id="source-value">0</span></p>
+        <p>Computed (with untracked dependency): <span id="computed-value">0</span></p>
+        <p>Computed run count: <span id="computed-count">0</span></p>
+        <button id="increment-source">Increment Source</button>
+        <button id="increment-untracked-dep">Increment Untracked Dependency</button>
+    </div>
+
+    <div id="test-3">
+        <h2>Test 3: Nested untrack</h2>
+        <p>A: <span id="signal-a">0</span></p>
+        <p>B: <span id="signal-b">0</span></p>
+        <p>C: <span id="signal-c">0</span></p>
+        <p>Effect runs: <span id="nested-effect-count">0</span></p>
+        <button id="increment-a">Increment A (should trigger)</button>
+        <button id="increment-b">Increment B (should NOT trigger)</button>
+        <button id="increment-c">Increment C (should trigger)</button>
+    </div>
+
+    <script type="module">
+        import { signal, dirtyEffect, computed } from '../../dist/token.js';
+
+        // Test 1: Basic untrack functionality
+        {
+            const trackedSignal = signal(0);
+            const untrackedSignal = signal(0);
+            let effectRunCount = 0;
+
+            dirtyEffect(() => {
+                effectRunCount++;
+                document.getElementById('tracked-value').textContent = trackedSignal.v;
+                
+                // Read untracked signal without creating a dependency
+                const untrackedValue = untrack(() => untrackedSignal.v);
+                document.getElementById('untracked-value').textContent = untrackedValue;
+                
+                document.getElementById('effect-count').textContent = effectRunCount;
+            });
+
+            document.getElementById('increment-tracked').addEventListener('click', () => {
+                trackedSignal.v++;
+            });
+
+            document.getElementById('increment-untracked').addEventListener('click', () => {
+                untrackedSignal.v++;
+                // Manually update display since effect won't run
+                document.getElementById('untracked-value').textContent = untrackedSignal.v;
+            });
+        }
+
+        // Test 2: Untrack in computed
+        {
+            const source = signal(0);
+            const untrackedDep = signal(0);
+            let computedRunCount = 0;
+
+            const computedValue = computed(() => {
+                computedRunCount++;
+                const sourceVal = source.v;
+                const untrackedVal = untrack(() => untrackedDep.v);
+                document.getElementById('computed-count').textContent = computedRunCount;
+                return sourceVal + untrackedVal;
+            });
+
+            dirtyEffect(() => {
+                document.getElementById('source-value').textContent = source.v;
+                document.getElementById('computed-value').textContent = computedValue.v;
+            });
+
+            document.getElementById('increment-source').addEventListener('click', () => {
+                source.v++;
+            });
+
+            document.getElementById('increment-untracked-dep').addEventListener('click', () => {
+                untrackedDep.v++;
+                // Need to trigger computed manually by accessing it
+                document.getElementById('computed-value').textContent = computedValue.v;
+            });
+        }
+
+        // Test 3: Nested untrack - tracking A and C, but not B
+        {
+            const a = signal(0);
+            const b = signal(0);
+            const c = signal(0);
+            let nestedEffectCount = 0;
+
+            dirtyEffect(() => {
+                nestedEffectCount++;
+                
+                // Track A
+                document.getElementById('signal-a').textContent = a.v;
+                
+                // Don't track B
+                untrack(() => {
+                    document.getElementById('signal-b').textContent = b.v;
+                });
+                
+                // Track C
+                document.getElementById('signal-c').textContent = c.v;
+                
+                document.getElementById('nested-effect-count').textContent = nestedEffectCount;
+            });
+
+            document.getElementById('increment-a').addEventListener('click', () => {
+                a.v++;
+            });
+
+            document.getElementById('increment-b').addEventListener('click', () => {
+                b.v++;
+                // Manually update display
+                document.getElementById('signal-b').textContent = b.v;
+            });
+
+            document.getElementById('increment-c').addEventListener('click', () => {
+                c.v++;
+            });
+        }
+    </script>
+</body>
+
+</html>

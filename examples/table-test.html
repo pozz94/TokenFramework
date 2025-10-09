@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Table Test - if/each in Tables</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .test-section {
+            margin: 2rem 0;
+            padding: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            border: 1px solid #007bff;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.danger {
+            background: #dc3545;
+            border-color: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        .status-active {
+            color: green;
+            font-weight: bold;
+        }
+        .status-inactive {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Table Tests - Conditional & Loops</h1>
+
+    <div class="test-section">
+        <h2>Test 1: Conditional rows with `if` on `<tbody>`</h2>
+        <p>Toggle to show/hide different sections of the table.</p>
+        <table-with-conditionals render></table-with-conditionals>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Loop rows with `each:` on `<tbody>`</h2>
+        <p>Dynamic list of users in a table.</p>
+        <table-with-loop render></table-with-loop>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Nested conditionals in table</h2>
+        <p>Conditional columns and rows.</p>
+        <table-with-nested render></table-with-nested>
+    </div>
+
+    <script type="module">
+        import token from '../src/tokenNew.js';
+        import '../src/tableComponents.js';
+
+        // ===== TEST 1: Conditional Rows =====
+        token('table-with-conditionals', () => {
+            const showActive = signal(true);
+            const showInactive = signal(true);
+            
+            const activeUsers = signal([
+                { name: 'Alice', email: 'alice@example.com', status: 'active' },
+                { name: 'Bob', email: 'bob@example.com', status: 'active' }
+            ]);
+            
+            const inactiveUsers = signal([
+                { name: 'Charlie', email: 'charlie@example.com', status: 'inactive' },
+                { name: 'Diana', email: 'diana@example.com', status: 'inactive' }
+            ]);
+            
+            html`
+                <div>
+                    <button onclick=${() => showActive.v = !showActive.v}>
+                        ${() => showActive.v ? 'Hide' : 'Show'} Active Users
+                    </button>
+                    <button onclick=${() => showInactive.v = !showInactive.v}>
+                        ${() => showInactive.v ? 'Hide' : 'Show'} Inactive Users
+                    </button>
+                    
+                    <t-table>
+                        <t-head>
+                            <t-row>
+                                <t-header>Name</t-header>
+                                <t-header>Email</t-header>
+                                <t-header>Status</t-header>
+                            </t-row>
+                        </t-head>
+                        
+                        <!-- Active users section with conditional t-body -->
+                        <t-body>
+                            <w if=${showActive}>
+                                <w each:user=${activeUsers}>
+                                    <t-row>
+                                        <t-cell>${() => user.name}</t-cell>
+                                        <t-cell>${() => user.email}</t-cell>
+                                        <t-cell class="status-active">${() => user.status}</t-cell>
+                                    </t-row>
+                                </w>
+                            </w>
+                            
+                            <!-- Inactive users section with conditional t-body -->
+                            <w if=${showInactive}>
+                                <w each:user=${inactiveUsers}>
+                                    <t-row>
+                                        <t-cell>${() => user.name}</t-cell>
+                                        <t-cell>${() => user.email}</t-cell>
+                                        <t-cell class="status-inactive">${() => user.status}</t-cell>
+                                    </t-row>
+                                </w>
+                            </w>
+                            
+                            <!-- Empty state -->
+                            <w if=${() => !showActive.v && !showInactive.v}>
+                                <t-row>
+                                    <t-cell colspan="3" style="text-align: center; color: #999;">
+                                        No users to display
+                                    </t-cell>
+                                </t-row>
+                            </w>
+                        </t-body>
+                    </t-table>
+                </div>
+            `;
+        });
+
+        // ===== TEST 2: Loop Rows =====
+        token('table-with-loop', () => {
+            const users = signal([
+                { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Admin' },
+                { id: 2, name: 'Bob Smith', email: 'bob@example.com', role: 'User' },
+                { id: 3, name: 'Charlie Brown', email: 'charlie@example.com', role: 'User' }
+            ]);
+            
+            const addUser = () => {
+                const id = users.v.length + 1;
+                users.v = [...users.v, {
+                    id,
+                    name: `User ${id}`,
+                    email: `user${id}@example.com`,
+                    role: 'User'
+                }];
+            };
+            
+            const removeUser = (userId) => {
+                users.v = users.v.filter(u => u.id !== userId);
+            };
+            
+            html`
+                <div>
+                    <button onclick=${addUser}>Add User</button>
+                    
+                    <t-table>
+                        <t-head>
+                            <t-row>
+                                <t-header>ID</t-header>
+                                <t-header>Name</t-header>
+                                <t-header>Email</t-header>
+                                <t-header>Role</t-header>
+                                <t-header>Actions</t-header>
+                            </t-row>
+                        </t-head>
+                        
+                        <!-- Loop through users with each: on t-body -->
+                        <t-body each:user=${users}>
+                            <t-row>
+                                <t-cell>${() => user.id}</t-cell>
+                                <t-cell>${() => user.name}</t-cell>
+                                <t-cell>${() => user.email}</t-cell>
+                                <t-cell>${() => user.role}</t-cell>
+                                <t-cell>
+                                    <button class="danger" onclick=${() => removeUser(user.id.v)}>
+                                        Remove
+                                    </button>
+                                </t-cell>
+                            </t-row>
+                        </t-body>
+                    </t-table>
+                </div>
+            `;
+        });
+
+        // ===== TEST 3: Nested Conditionals =====
+        token('table-with-nested', () => {
+            const showDetails = signal(true);
+            const showActions = signal(true);
+            
+            const items = signal([
+                { id: 1, name: 'Item 1', price: 10, stock: 5 },
+                { id: 2, name: 'Item 2', price: 20, stock: 0 },
+                { id: 3, name: 'Item 3', price: 30, stock: 10 }
+            ]);
+            
+            html`
+                <div>
+                    <button onclick=${() => showDetails.v = !showDetails.v}>
+                        ${() => showDetails.v ? 'Hide' : 'Show'} Details
+                    </button>
+                    <button onclick=${() => showActions.v = !showActions.v}>
+                        ${() => showActions.v ? 'Hide' : 'Show'} Actions
+                    </button>
+                    
+                    <t-table>
+                        <t-head>
+                            <t-row>
+                                <t-header>Name</t-header>
+                                <w if=${showDetails}>
+                                    <t-header>Price</t-header>
+                                    <t-header>Stock</t-header>
+                                </w>
+                                <t-header if=${showActions}>Actions</t-header>
+                            </t-row>
+                        </t-head>
+                        
+                        <t-body each:item=${items}>
+                            <t-row>
+                                <t-cell>${() => item.name}</t-cell>
+                                <w if=${showDetails}>
+                                    <t-cell>$${() => item.price}</t-cell>
+                                    <t-cell>${() => item.stock}</t-cell>
+                                </w>
+                                <t-cell if=${showActions}>
+                                    <button onclick=${() => console.log('Edit', item.name.v)}>
+                                        Edit
+                                    </button>
+                                </t-cell>
+                            </t-row>
+                        </t-body>
+                    </t-table>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>

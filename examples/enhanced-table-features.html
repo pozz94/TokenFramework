@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enhanced Grid-Table Features</title>
+    <script type="module" src="../src/gridTableComponents.js"></script>
+    <script type="module" src="../src/tokenNew.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 2rem; }
+        .example { margin: 2rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+        h2 { color: #333; }
+        h3 { color: #666; }
+        .demo-controls { margin: 1rem 0; }
+        button { padding: 0.5rem 1rem; margin: 0.25rem; }
+    </style>
+</head>
+<body>
+    <h1>Enhanced G-Table Features</h1>
+
+    <div class="example">
+        <h2>1. Table with Caption and Column Groups</h2>
+        <grid-table>
+            <grid-caption>Sales Report Q3 2025</grid-caption>
+            <grid-colgroup>
+                <grid-col width="150px"></grid-col>
+                <grid-col width="100px"></grid-col>
+                <grid-col width="100px"></grid-col>
+                <grid-col width="120px"></grid-col>
+            </grid-colgroup>
+            <grid-head>
+                <grid-row>
+                    <grid-header>Product</grid-header>
+                    <grid-header>Q1</grid-header>
+                    <grid-header>Q2</grid-header>
+                    <grid-header>Q3</grid-header>
+                </grid-row>
+            </grid-head>
+            <grid-body>
+                <grid-row>
+                    <grid-row-header>Widget A</grid-row-header>
+                    <grid-data-cell data-type="currency">$12,500</grid-data-cell>
+                    <grid-data-cell data-type="currency">$15,200</grid-data-cell>
+                    <grid-data-cell data-type="currency">$18,900</grid-data-cell>
+                </grid-row>
+                <grid-row>
+                    <grid-row-header>Widget B</grid-row-header>
+                    <grid-data-cell data-type="currency">$8,300</grid-data-cell>
+                    <grid-data-cell data-type="currency">$9,100</grid-data-cell>
+                    <grid-data-cell data-type="currency">$11,400</grid-data-cell>
+                </grid-row>
+            </grid-body>
+            <grid-foot>
+                <grid-row>
+                    <grid-row-header>Total</grid-row-header>
+                    <grid-data-cell data-type="currency">$20,800</grid-data-cell>
+                    <grid-data-cell data-type="currency">$24,300</grid-data-cell>
+                    <grid-data-cell data-type="currency">$30,300</grid-data-cell>
+                </grid-row>
+            </grid-foot>
+        </grid-table>
+    </div>
+
+    <div class="example">
+        <h2>2. Sortable Table with Data Types</h2>
+        <div id="sortable-demo"></div>
+        <div class="demo-controls">
+            <button onclick="addRandomData()">Add Random Row</button>
+            <button onclick="clearData()">Clear Data</button>
+        </div>
+    </div>
+
+    <div class="example">
+        <h2>3. Complex Layout with Spanning and Framework Integration</h2>
+        <div id="complex-demo"></div>
+        <div class="demo-controls">
+            <button onclick="toggleDetails()">Toggle Details</button>
+            <button onclick="toggleSummary()">Toggle Summary</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { token } from '../src/tokenNew.js';
+
+        // Sample data for sortable table
+        const tableData = token([
+            { id: 1, name: 'Alice Johnson', age: 28, score: 85.5, active: true, joined: '2022-03-15' },
+            { id: 2, name: 'Bob Smith', age: 34, score: 92.1, active: false, joined: '2021-08-22' },
+            { id: 3, name: 'Carol Davis', age: 25, score: 78.9, active: true, joined: '2023-01-10' },
+            { id: 4, name: 'David Wilson', age: 41, score: 95.3, active: true, joined: '2020-11-05' }
+        ]);
+
+        const showDetails = token(true);
+        const showSummary = token(true);
+
+        // Sortable table demo
+        const sortableDemo = token`
+            <grid-table>
+                <grid-caption>Employee Performance Data</grid-caption>
+                <grid-head>
+                    <grid-row>
+                        <grid-header sortable aria-sort="none">ID</grid-header>
+                        <grid-header sortable aria-sort="none">Name</grid-header>
+                        <grid-header sortable aria-sort="none">Age</grid-header>
+                        <grid-header sortable aria-sort="none">Score</grid-header>
+                        <grid-header sortable aria-sort="none">Active</grid-header>
+                        <grid-header sortable aria-sort="none">Joined</grid-header>
+                    </grid-row>
+                </grid-head>
+                <grid-body>
+                    <grid-row each:person=${tableData}>
+                        <grid-data-cell data-type="number">${() => person.id}</grid-data-cell>
+                        <grid-cell>${() => person.name}</grid-cell>
+                        <grid-data-cell data-type="number">${() => person.age}</grid-data-cell>
+                        <grid-data-cell data-type="number">${() => person.score.toFixed(1)}</grid-data-cell>
+                        <grid-data-cell data-type="boolean">${() => person.active ? '✅' : '❌'}</grid-data-cell>
+                        <grid-data-cell data-type="date">${() => person.joined}</grid-data-cell>
+                    </grid-row>
+                </grid-body>
+            </grid-table>
+        `;
+
+        // Complex demo with spanning
+        const complexDemo = token`
+            <grid-table>
+                <grid-caption if=${showSummary}>Project Status Dashboard</grid-caption>
+                <grid-head if=${showSummary}>
+                    <grid-row>
+                        <grid-header colspan="4">Q4 2025 Projects</grid-header>
+                    </grid-row>
+                    <grid-row>
+                        <grid-header>Project</grid-header>
+                        <grid-header>Status</grid-header>
+                        <grid-header>Progress</grid-header>
+                        <grid-header>Due Date</grid-header>
+                    </grid-row>
+                </grid-head>
+                <grid-body if=${showDetails}>
+                    <grid-row>
+                        <grid-row-header rowspan="2">Website Redesign</grid-row-header>
+                        <grid-cell>In Progress</grid-cell>
+                        <grid-data-cell data-type="number">75%</grid-data-cell>
+                        <grid-data-cell data-type="date">Dec 15</grid-data-cell>
+                    </grid-row>
+                    <grid-row>
+                        <grid-cell colspan="3" style="background: #f0f8ff; font-style: italic;">
+                            Next milestone: User testing completion by Dec 1
+                        </grid-cell>
+                    </grid-row>
+                    <grid-row>
+                        <grid-row-header>Mobile App</grid-row-header>
+                        <grid-cell>Planning</grid-cell>
+                        <grid-data-cell data-type="number">20%</grid-data-cell>
+                        <grid-data-cell data-type="date">Jan 30</grid-data-cell>
+                    </grid-row>
+                </grid-body>
+                <grid-foot if=${showSummary}>
+                    <grid-row>
+                        <grid-cell colspan="4" align="center" style="background: #f9f9f9;">
+                            <strong>2 active projects • 1 in progress, 1 in planning</strong>
+                        </grid-cell>
+                    </grid-row>
+                </grid-foot>
+            </grid-table>
+        `;
+
+        document.getElementById('sortable-demo').appendChild(sortableDemo);
+        document.getElementById('complex-demo').appendChild(complexDemo);
+
+        // Event handlers
+        window.addRandomData = () => {
+            const names = ['Emma Brown', 'Frank Miller', 'Grace Lee', 'Henry Taylor'];
+            const randomName = names[Math.floor(Math.random() * names.length)];
+            const randomAge = Math.floor(Math.random() * 30) + 25;
+            const randomScore = Math.random() * 40 + 60;
+            const randomActive = Math.random() > 0.5;
+            
+            const newData = [...tableData.get(), {
+                id: tableData.get().length + 1,
+                name: randomName,
+                age: randomAge,
+                score: randomScore,
+                active: randomActive,
+                joined: '2023-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0') + '-15'
+            }];
+            tableData.set(newData);
+        };
+
+        window.clearData = () => {
+            tableData.set([]);
+        };
+
+        window.toggleDetails = () => {
+            showDetails.set(!showDetails.get());
+        };
+
+        window.toggleSummary = () => {
+            showSummary.set(!showSummary.get());
+        };
+
+        // Handle sorting events
+        document.addEventListener('sort', (e) => {
+            const { column, direction } = e.detail;
+            const columnIndex = Array.from(column.parentElement.children).indexOf(column);
+            const fields = ['id', 'name', 'age', 'score', 'active', 'joined'];
+            const field = fields[columnIndex];
+            
+            if (!field) return;
+            
+            const sorted = [...tableData.get()].sort((a, b) => {
+                let aVal = a[field];
+                let bVal = b[field];
+                
+                // Type-specific comparisons
+                if (field === 'age' || field === 'score' || field === 'id') {
+                    aVal = Number(aVal);
+                    bVal = Number(bVal);
+                } else if (field === 'joined') {
+                    aVal = new Date(aVal);
+                    bVal = new Date(bVal);
+                } else if (field === 'active') {
+                    aVal = aVal ? 1 : 0;
+                    bVal = bVal ? 1 : 0;
+                }
+                
+                if (direction === 'ascending') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+            });
+            
+            tableData.set(sorted);
+        });
+    </script>
+
+    <h2>New Features Summary</h2>
+    <ul>
+        <li><strong>g-caption</strong> - Table captions for accessibility and context</li>
+        <li><strong>g-colgroup / g-col</strong> - Column group styling and width control</li>
+        <li><strong>g-data-cell</strong> - Type-aware cells (number, currency, date, boolean)</li>
+        <li><strong>g-row-header</strong> - Row header cells with rowheader role</li>
+        <li><strong>Sortable headers</strong> - Click to sort columns with visual indicators</li>
+        <li><strong>Enhanced spanning</strong> - Works with framework directives</li>
+        <li><strong>ARIA compliance</strong> - Full accessibility support</li>
+    </ul>
+
+    <h2>Usage Examples</h2>
+    <pre><code><!-- Basic sortable table -->
+&lt;g-table&gt;
+    &lt;g-caption&gt;Sales Data&lt;/g-caption&gt;
+    &lt;g-head&gt;
+        &lt;g-row&gt;
+            &lt;g-header sortable&gt;Product&lt;/g-header&gt;
+            &lt;g-header sortable&gt;Sales&lt;/g-header&gt;
+        &lt;/g-row&gt;
+    &lt;/g-head&gt;
+    &lt;g-body&gt;
+        &lt;g-row each:item=${data}&gt;
+            &lt;g-cell&gt;${() =&gt; item.product}&lt;/g-cell&gt;
+            &lt;g-data-cell data-type="currency"&gt;${() =&gt; item.sales}&lt;/g-data-cell&gt;
+        &lt;/g-row&gt;
+    &lt;/g-body&gt;
+&lt;/g-table&gt;
+
+<!-- Complex layout with spanning -->
+&lt;g-table&gt;
+    &lt;g-colgroup&gt;
+        &lt;g-col width="200px"&gt;&lt;/g-col&gt;
+        &lt;g-col width="100px"&gt;&lt;/g-col&gt;
+    &lt;/g-colgroup&gt;
+    &lt;g-body&gt;
+        &lt;g-row&gt;
+            &lt;g-row-header rowspan="2"&gt;Category A&lt;/g-row-header&gt;
+            &lt;g-data-cell data-type="number"&gt;123&lt;/g-data-cell&gt;
+        &lt;/g-row&gt;
+        &lt;g-row&gt;
+            &lt;g-cell colspan="2"&gt;Summary info&lt;/g-cell&gt;
+        &lt;/g-row&gt;
+    &lt;/g-body&gt;
+&lt;/g-table&gt;</code></pre>
+</body>
+</html>

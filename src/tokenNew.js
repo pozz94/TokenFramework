@@ -1,4 +1,5 @@
 import { signal, computed, effect, isSignal } from './signalNew3.js';
+//import { signal, computed, effect, isSignal } from './signalNew2.js';
 //import { signal, computed, effect, isSignal } from './signal.js';
 import { scopeCSS } from './cssProcessing.js';
 import { wrapInContext } from './utils.js';
@@ -22,9 +23,12 @@ const BOOLEAN_ATTRIBUTES = new Set([
 	'checked', 'selected', 'disabled', 'readonly', 'required', 'hidden', 'multiple', 'open', 'autofocus', 'loop', 'muted', 'controls', 'autoplay'
 ]);
 
+const FULL_REPLACEMENT_PLACEHOLDER = /\{\{--(\d+)--\}\}/;
+const PARTIAL_REPLACEMENT_PLACEHOLDER = /\'\{\{--(\d+)--\}\}\'/g;
+
 const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
-	const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
-	const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
+	const fullReplacementPlaceholder = new RegExp(FULL_REPLACEMENT_PLACEHOLDER.source);
+	const partialReplacementPlaceholder = new RegExp(PARTIAL_REPLACEMENT_PLACEHOLDER.source, 'g');
 
 	let bindingFunctions = [];
 	let slots = [];
@@ -34,7 +38,6 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 	let generatedSubComponent = false;
 
 	const handleFullReplacementAndPush = (name, value, callback) => {
-		const fullReplacementPlaceholder = /\{\{--(\d+)--\}\}/;
 		const match = value.match(fullReplacementPlaceholder);
 		if (match) {
 			const index = parseInt(match[1], 10);
@@ -75,8 +78,6 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 			break;
 		// handle element nodes
 		case Node.ELEMENT_NODE:
-			const attributes = Array.from(node.attributes);
-
 			if (node.tagName === 'SLOT') {
 				if (!node.hasAttribute('component')) {
 					slots.push([node.getAttribute('name') ?? 'default', currentNodeIndex]);
@@ -90,104 +91,118 @@ const findTemplateBindings = (node, bindingValues, currentNodeIndex = []) => {
 				});
 			}
 
-			for (const { name, value } of attributes) {
-				if (value.includes('{{--')) {
-					if (name.startsWith('on')) { // handle event attributes
-						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
-							if (typeof bindingValue === 'function') {
-								node.addEventListener(name.substring(2).toLowerCase(), wrapInContext(bindingValue, context));
-							} else {
-								console.error('event attributes must be functions');
-							}
-						});
-					} else if (name === ":this") {
-						handleFullReplacementAndPush(name, value, (bindingValue, node) => {
-							if (isSignal(bindingValue)) {
-								bindingValue.v = node;
-							} else {
-								console.error('to save a reference to the element, a signal must be passed as an argument');
-							}
-						});
-					} else if (name === "apply") {
-						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
-							if (typeof bindingValue === 'function') {
-								wrapInContext(() => bindingValue(node), context)();
-							} else {
-								console.error('apply accepts only functions as an argument');
-							}
-						});
-					} else if (name.startsWith(':')) { // handle bound attributes
-						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
-							if (isSignal(bindingValue) || typeof bindingValue === 'function') {
-								return createTwoWayBinding(node, name.substring(1), convertToSignal(bindingValue, context));
-							} else {
-								console.error('bound attribute must be a signal');
-							}
-						});
-					} else if (BOOLEAN_ATTRIBUTES.has(name.toLowerCase())) {
-						handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
-							if (isSignal(bindingValue) || typeof bindingValue === 'function') {
-								bindingValue = convertToSignal(bindingValue, context);
-								return effect.UI(wrapInContext(() => node[name] = bindingValue.v, context));
-							} else {
-								console.error('boolean attributes must be signals');
-							}
-						});
-					} else if (name === "if") {
-						generatedSubComponent = true;
-						bindingFunctions.push(conditionalHandler(node, bindingValues));
-					} else if (name === "await") {
-						generatedSubComponent = true;
-						bindingFunctions.push(resourceHandler(node, bindingValues));
-					} else if (name.startsWith('each:')) {
-						generatedSubComponent = true;
-						bindingFunctions.push(listHandler(node, bindingValues, name));
-					} else {
-						if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
-							const { parts, indices } = splitTemplate(value);
-							bindingFunctions.push((bindingValues, node, context) => {
-								const expressions = [];
-								for (const index of indices) {
-									expressions.push(convertToSignal(bindingValues[index], context));
-								}
-								return effect.UI(wrapInContext(() => {
-									let newValue = '';
-									let index = 0;
-									for (const part of parts) {
-										newValue += part + (expressions[index]?.v ?? '');
-										index++;
-									}
-									node.setAttribute(name, newValue);
-								}, context));
-							});
-						} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
-							handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
-								if (typeof bindingValue === 'function' && isWebComponent(node)) {
-									node.setAttribute(name, wrapInContext(bindingValue, context), true);
-								}
-								else {
-									const bindingValueSignal = convertToSignal(bindingValue, context);
-									return effect.UI(wrapInContext(() => node.setAttribute(name, bindingValueSignal.v), context));
-								}
-							});
+			for (const { name, value } of Array.from(node.attributes)) {
+				if (!value.includes('{{--')) continue;
+
+				// Handle special attributes
+				if (name.startsWith('on')) { // handle event attributes
+					handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+						if (typeof bindingValue === 'function') {
+							node.addEventListener(name.substring(2).toLowerCase(), wrapInContext(bindingValue, context));
+						} else {
+							console.error('event attributes must be functions');
 						}
-					}
+					});
+				} else if (name === ":this") {
+					handleFullReplacementAndPush(name, value, (bindingValue, node) => {
+						if (isSignal(bindingValue)) {
+							bindingValue.v = node;
+						} else {
+							console.error('to save a reference to the element, a signal must be passed as an argument');
+						}
+					});
+				} else if (name === "apply") {
+					handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+						if (typeof bindingValue === 'function') {
+							wrapInContext(() => bindingValue(node), context)();
+						} else {
+							console.error('apply accepts only functions as an argument');
+						}
+					});
+				} else if (name.startsWith(':')) { // handle bound attributes
+					handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+						if (isWebComponent(node)) {
+							// For web components with :attr, pass through directly (bind=true)
+							node.setAttribute(name.substring(1), bindingValue, true);
+						} else if (isSignal(bindingValue) || typeof bindingValue === 'function') {
+							// For regular elements, create two-way binding
+							return createTwoWayBinding(node, name.substring(1), convertToSignal(bindingValue, context));
+						} else {
+							console.error('bound attribute must be a signal or function');
+						}
+					});
+				} else if (BOOLEAN_ATTRIBUTES.has(name.toLowerCase())) {
+					handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+						if (isSignal(bindingValue) || typeof bindingValue === 'function') {
+							bindingValue = convertToSignal(bindingValue, context);
+							return effect.UI(wrapInContext(() => node[name] = bindingValue.v, context));
+						} else {
+							console.error('boolean attributes must be signals');
+						}
+					});
+				} else if (name === "if") {
+					generatedSubComponent = true;
+					// We'll need to pass parent scope dynamically, store a marker
+					bindingFunctions.push((bindingValues, node, context, parentName) => {
+						const parentScope = context.__parentScopeClass || parentName || null;
+						const branches = ifHandler(node, bindingValues, parentScope);
+						return conditionalHandler(node, bindingValues, () => branches)(bindingValues, node, context, parentName);
+					});
+				} else if (name === "await") {
+					generatedSubComponent = true;
+					bindingFunctions.push((bindingValues, node, context, parentName) => {
+						const parentScope = context.__parentScopeClass || parentName || null;
+						const branches = resourceBranchGeneration(node, bindingValues, parentScope);
+						return conditionalHandler(node, bindingValues, () => branches)(bindingValues, node, context, parentName);
+					});
+				} else if (name.startsWith('each:')) {
+					generatedSubComponent = true;
+					bindingFunctions.push(listHandler(node, bindingValues, name));
+				} else if (partialReplacementPlaceholder.test(value)) { // handle partial replacement
+					const { parts, indices } = splitTemplate(value);
+					bindingFunctions.push((bindingValues, node, context) => {
+						const expressions = [];
+						for (const index of indices) {
+							expressions.push(convertToSignal(bindingValues[index], context));
+						}
+						return effect.UI(wrapInContext(() => {
+							let newValue = '';
+							let index = 0;
+							for (const part of parts) {
+								newValue += part + (expressions[index]?.v ?? '');
+								index++;
+							}
+							node.setAttribute(name, newValue);
+						}, context));
+					});
+				} else if (fullReplacementPlaceholder.test(value)) { // handle full replacement
+					handleFullReplacementAndPush(name, value, (bindingValue, node, context) => {
+						if (isWebComponent(node)) {
+							// For web components, pass the value directly (setAttribute will handle wrapping)
+							node.setAttribute(name, bindingValue, false);
+						}
+						else {
+							const bindingValueSignal = convertToSignal(bindingValue, context);
+							return effect.UI(wrapInContext(() => node.setAttribute(name, bindingValueSignal.v), context));
+						}
+					});
 				}
+
 			}
 	}
 
 	if (isWebComponent(node)) bindingFunctions.push((bindingValues, node) => { node.setAttribute('render', true); });
 
-	const bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
+	let bindings = bindingFunctions.length ? [{ index: currentNodeIndex, bindingFunctions }] : [];
 
 	if (generatedSubComponent) return { bindings, slots, componentSlots, styleElements };
 
 	for (let i = 0; i < node.childNodes.length; i++) {
 		const { bindings: childBindings, slots: childSlots = [], componentSlots: childComponentSlots = [], styleElements: childStyles = [] } = findTemplateBindings(node.childNodes[i], bindingValues, [...currentNodeIndex, i]);
-		bindings.push(...childBindings);
-		slots.push(...childSlots);
-		componentSlots.push(...childComponentSlots);
-		styleElements.push(...childStyles);
+		bindings = bindings.concat(childBindings);
+		slots = slots.concat(childSlots);
+		componentSlots = componentSlots.concat(childComponentSlots);
+		styleElements = styleElements.concat(childStyles);
 	}
 
 	return { bindings, slots, componentSlots, styleElements };
@@ -211,14 +226,19 @@ const createTwoWayBinding = (element, boundAttrName, sig) => {
 	}
 };
 
-const waitOverride = (element, func) => {
-	const tryFunc = (attempts = 0) => {
-		if (element.setAttribute !== HTMLElement.prototype.setAttribute) {
-			func();
-		} else if (attempts < 10) queueMicrotask(() => tryFunc(attempts + 1));
-		else console.error(`Too many attempts at waiting for the element to be upgraded`);
-	};
-	tryFunc();
+//const waitOverride = (element, func) => {
+//	const tryFunc = (attempts = 0) => {
+//		if (element.setAttribute !== HTMLElement.prototype.setAttribute) {
+//			func();
+//		} else if (attempts < 10) queueMicrotask(() => tryFunc(attempts + 1));
+//		else console.error(`Too many attempts at waiting for the element to be upgraded`);
+//	};
+//	tryFunc();
+//};
+
+const waitOverride = async (element, func) => {
+    await customElements.whenDefined(element.tagName.toLowerCase());
+    queueMicrotask(func);
 };
 
 const applyBindings = async (bindings, bindingValues, origin, context, parentName) => {
@@ -250,7 +270,7 @@ const getNodeAtIndex = (index, node) => {
 };
 
 function splitTemplate(str) {
-	const partialReplacementPlaceholder = /\'\{\{--(\d+)--\}\}\'/g;
+	const partialReplacementPlaceholder = new RegExp(PARTIAL_REPLACEMENT_PLACEHOLDER.source, 'g');
 
 	const parts = [];
 	const indices = [];
@@ -279,19 +299,21 @@ const randomId = () => {
 };
 
 // Create a component from nodes
-const createComponent = (nodes, bindingValues) => {
+const createComponent = (nodes, bindingValues, parentScopeClass = null) => {
 	const template = document.createElement('template');
 	for (const node of nodes) { template.content.appendChild(node.cloneNode(true)); };
 
 	const bindings = findTemplateBindings(template.content, bindingValues);
 	return bindingValues => token(() => html([], ...bindingValues), {
 		template: template.content,
-		...bindings
+		...bindings,
+		parentScopeClass  // Pass parent scope class
 	});
 };
 
 const parseConditionIndex = (attributeValue) => {
-	const match = attributeValue?.match(/\{\{--(\d+)--\}\}/);
+	const fullReplacementPlaceholder = new RegExp(FULL_REPLACEMENT_PLACEHOLDER.source);
+	const match = attributeValue?.match(fullReplacementPlaceholder);
 	return match ? parseInt(match[1], 10) : undefined;
 };
 
@@ -299,7 +321,7 @@ const conditionalHandler = (node, bindingValues, branchGeneration = ifHandler) =
 	const branches = branchGeneration(node, bindingValues);
 
 	// Return the binding function
-	return (bindingValues, node, context) => {
+	return (bindingValues, node, context, parentName) => {
 		const instanceBranches = branches.map(branch => ({
 			...branch,
 			condition: branch.conditionGenerator(bindingValues, context, branch.conditionIndex)
@@ -313,7 +335,10 @@ const conditionalHandler = (node, bindingValues, branchGeneration = ifHandler) =
 			for (const branch of instanceBranches) {
 				if (!!branch.condition.v) {
 					const element = document.createElement(branch.component(bindingValues));
-					element.setContext(context);
+					// Pass parent's scope class via context (only if it exists)
+					const parentScope = context.__parentScopeClass || parentName;
+					const contextToPass = parentScope ? {...context, __parentScopeClass: parentScope} : context;
+					element.setContext(contextToPass);
 					node.appendChild(element);
 					break;
 				}
@@ -322,7 +347,7 @@ const conditionalHandler = (node, bindingValues, branchGeneration = ifHandler) =
 	};
 };
 
-const ifHandler = (node, bindingValues) => {
+const ifHandler = (node, bindingValues, parentScopeClass) => {
 	// Setup branch collection
 	const branches = [];
 	const childNodes = Array.from(node.childNodes);
@@ -348,7 +373,7 @@ const ifHandler = (node, bindingValues) => {
 			branches.push({
 				conditionIndex,
 				conditionGenerator,
-				component: createComponent(currentNodes, bindingValues)
+				component: createComponent(currentNodes, bindingValues, parentScopeClass)
 			});
 
 			// Start a new branch
@@ -366,7 +391,7 @@ const ifHandler = (node, bindingValues) => {
 		branches.push({
 			conditionIndex,
 			conditionGenerator,
-			component: createComponent(currentNodes, bindingValues)
+			component: createComponent(currentNodes, bindingValues, parentScopeClass)
 		});
 	}
 
@@ -376,7 +401,7 @@ const ifHandler = (node, bindingValues) => {
 
 const resourceHandler = (node, bindingValues) => conditionalHandler(node, bindingValues, resourceBranchGeneration);
 
-const resourceBranchGeneration = (node, bindingValues) => {
+const resourceBranchGeneration = (node, bindingValues, parentScopeClass) => {
 	const branchObj = {};
 
 	const childNodes = Array.from(node.childNodes);
@@ -391,7 +416,7 @@ const resourceBranchGeneration = (node, bindingValues) => {
 			(childNode.hasAttribute('loading') || childNode.hasAttribute('error'));
 
 		if (isStateMarker) {
-			branchObj[currentState] = createComponent(currentNodes, bindingValues);
+			branchObj[currentState] = createComponent(currentNodes, bindingValues, parentScopeClass);
 			currentNodes = [];
 			currentState = childNode.hasAttribute('loading') ? 'loading' : 'error';
 		} else {
@@ -400,7 +425,7 @@ const resourceBranchGeneration = (node, bindingValues) => {
 	}
 
 	if (currentNodes.length > 0) {
-		branchObj[currentState] = createComponent(currentNodes, bindingValues);
+		branchObj[currentState] = createComponent(currentNodes, bindingValues, parentScopeClass);
 	}
 
 	const branchOrder = ['loading', 'error', 'data'];
@@ -430,6 +455,7 @@ const listHandler = (node, bindingValues, name) => {
 	let callback = (bindingValue, node, bindingValues, context, bindingIndex, parentName) => {
 		// Create a unique but compact template key using parent info and binding index
 		const templateKey = `${parentName}-${iteratorName}-${bindingIndex}`;
+		const parentScopeClass = context.__parentScopeClass || parentName || null;
 
 		let componentName;
 
@@ -446,8 +472,12 @@ const listHandler = (node, bindingValues, name) => {
 
 			const listBindings = findTemplateBindings(template, bindingValues);
 
-			// Create the component definition once
-			componentName = token(() => html([], ...bindingValues), { template, ...listBindings });
+			// Create the component definition once with parent scope
+			componentName = token(() => html([], ...bindingValues), { 
+				template, 
+				...listBindings,
+				parentScopeClass
+			});
 
 			// Store in cache for future use
 			listComponentCache.set(templateKey, componentName);
@@ -461,19 +491,25 @@ const listHandler = (node, bindingValues, name) => {
 
 			for (let i = 0; i < length.v; i++) {
 				const componentElement = document.createElement(componentName);
+				const itemContext = {
+					[iteratorName]: bindingValue[i],
+					[iteratorName + "Index"]: i,
+					...context
+				};
+				// Only add __parentScopeClass if it exists
+				if (parentScopeClass) {
+					itemContext.__parentScopeClass = parentScopeClass;
+				}
 				waitOverride(componentElement, () =>
-					componentElement.setContext({
-						[iteratorName]: bindingValue[i],
-						[iteratorName + "Index"]: i,
-						...context
-					})
+					componentElement.setContext(itemContext)
 				);
 				node.appendChild(componentElement);
 			}
 		});
 	};
 
-	const match = node.getAttribute(`each:${iteratorName}`).match(/\{\{--(\d+)--\}\}/);
+	const fullReplacementPlaceholder = new RegExp(FULL_REPLACEMENT_PLACEHOLDER.source);
+	const match = node.getAttribute(`each:${iteratorName}`).match(fullReplacementPlaceholder);
 	if (match) {
 		const index = parseInt(match[1], 10);
 		node.removeAttribute(name);
@@ -509,7 +545,7 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 
 	// Transform conditional directives to template tags
 	templateString = templateString.replace(
-		/<(else|error|loading)(?:\s+if\s*=\s*(\'\{\{--\d+--\}\}\'?))?\s*\/?>/g,
+		/<:(else|error|loading)(?:\s+if\s*=\s*(\'\{\{--\d+--\}\}\'?))?\s*\/?>/g,
 		(match, directive, condition) =>
 			directive === 'else' && condition
 				? `<template elseif=${condition}></template>`
@@ -520,6 +556,11 @@ const createTemplateFromLiteral = (strings, ...bindingValues) => {
 	templateString = templateString.replace(/<([a-zA-Z][a-zA-Z0-9-]*)\s*([^>]*?)\s*\/>/g, '<$1 $2></$1>');
 
 	// ========== END PREPROCESSING ==========
+
+	// Check if template starts with <style> - this causes parsing issues
+	if (templateString.trim().toLowerCase().startsWith('<style')) {
+		throw new Error('Template cannot start with <style> element due to browser HTML parser quirks. Please place <style> after other elements.');
+	}
 
 	const template = document.createElement('template');
 	template.innerHTML = templateString;
@@ -643,14 +684,21 @@ const component = (name, factory, bypass = {}) => {
 		#generateCopy = async (bindingValues) => {
 			const copy = template.cloneNode(true);
 
-			const cleanups = await applyBindings(bindings, bindingValues, copy, this.#additionalContext, name);
+			// Merge additional context with parent scope info
+			const contextWithScope = {
+				...this.#additionalContext,
+				__parentScopeClass: this.#additionalContext?.__parentScopeClass || name
+			};
+
+			const cleanups = await applyBindings(bindings, bindingValues, copy, contextWithScope, name);
 			this.#unmountHooks.push(...cleanups);
 
 			const slotElements = Object.fromEntries(slots.map(([slotName, index]) => [slotName, getNodeAtIndex(index, copy)]));
 
 			const plugs = {};
 
-			for (const child of Array.from(this.children)) {
+			// Collect slot content from light DOM children
+			for (const child of this.children) {
 				const slotName = child.getAttribute('slot') || 'default';
 				if (!slotElements[slotName]) {
 					console.warn(`No matching slot "${slotName}" found for:`, child);
@@ -661,18 +709,27 @@ const component = (name, factory, bypass = {}) => {
 				}
 			}
 
-			//replace default content from slots if there are plugs for them
+			// Replace default slot content with provided content
 			for (const [slotName, children] of Object.entries(plugs)) {
-				if (slotElements[slotName]) {
-					slotElements[slotName].innerHTML = '';
-					slotElements[slotName].style.display = 'contents';
-					children.forEach(child => slotElements[slotName].appendChild(child));
+				const slotElement = slotElements[slotName];
+				if (slotElement) {
+					// Clear default content and configure for slotting
+					slotElement.textContent = '';
+					slotElement.style.display = 'contents';
+					// Move children into slot
+					for (const child of children) {
+						slotElement.appendChild(child);
+					}
 				}
 			}
 
-			//console.log(styleElement, globalStyleElement);
-			if(styleElement) document.head.appendChild(styleElement);
-			if(globalStyleElement) document.head.appendChild(globalStyleElement);
+			// Only append styles on first instance (check if already in DOM)
+			if (styleElement && !styleElement.parentNode) {
+				document.head.appendChild(styleElement);
+			}
+			if (globalStyleElement && !globalStyleElement.parentNode) {
+				document.head.appendChild(globalStyleElement);
+			}
 
 			this.#content = copy;
 			this.appendChild(this.#content);
@@ -685,8 +742,11 @@ const component = (name, factory, bypass = {}) => {
 			template = createTemplateFromLiteral(strings, ...bindingValues);
 			const { bindings: foundBindings, slots: foundSlots, styleElements } = findTemplateBindings(template, bindingValues);
 
+			// Use parent scope class if this is an anonymous component
+			const useParentScope = bypass?.parentScopeClass;
+			
 			// Handle styles
-			if (styleElements.length > 0) {
+			if (styleElements.length > 0 && !useParentScope) {
 				const combinedStyles = styleElements
 					.filter(style => !style.hasAttribute('global'))
 					.map(style => style.textContent)
@@ -712,18 +772,26 @@ const component = (name, factory, bypass = {}) => {
 
 				// Remove style elements from template
 				styleElements.forEach(style => style.remove());
+			} else if (useParentScope) {
+				// Use parent's scope class for anonymous components
+				scopeClassName = useParentScope;
+				// Remove style elements but don't create new ones
+				styleElements.forEach(style => style.remove());
 			}
 
-			const walk = (fragment) => {
-				Array.from(fragment.childNodes).forEach(node => {
-					if (node.nodeType === Node.ELEMENT_NODE) {
-						node.classList.add(scopeClassName);
-						walk(node);
-					}
-				});
-			};
+			// Only walk and add classes if we actually have a scope class
+			if (scopeClassName) {
+				const walk = (fragment) => {
+					Array.from(fragment.childNodes).forEach(node => {
+						if (node.nodeType === Node.ELEMENT_NODE) {
+							node.classList.add(scopeClassName);
+							walk(node);
+						}
+					});
+				};
 
-			walk(template);
+				walk(template);
+			}
 
 			bindings = foundBindings;
 			slots = foundSlots;
@@ -740,9 +808,9 @@ const component = (name, factory, bypass = {}) => {
 				return;
 			}
 
-			// For bound attributes (:attr syntax) - pass through directly
+			// For :attr syntax - pass through directly
 			if (bind) {
-				this.#props[name] = value;
+				this.#props[name] = value; // Direct assignment (signal/function/primitive)
 				// Store marker in DOM for functions, otherwise store the signal's current value
 				const domValue = typeof value === 'function' ? 'functionAttribute' : (isSignal(value) ? value.v : value);
 				super.setAttribute(name, domValue);
@@ -753,7 +821,7 @@ const component = (name, factory, bypass = {}) => {
 				return;
 			}
 
-			// For non-bound attributes - create read-only computed values
+			// For non-: attr - create read-only computed values
 			const type = isSignal(value) ? 'signal' : typeof value;
 
 			// Convert functions and signals to read-only computed
@@ -792,9 +860,14 @@ const component = (name, factory, bypass = {}) => {
 
 		disconnectedCallback() {
 			instanceCount--;
-			if (instanceCount === 0 && styleElement) {
-				styleElement.remove();
-				globalStyleElement.remove();
+			// Defer style removal to avoid flicker if a new instance is created immediately
+			if (instanceCount === 0) {
+				queueMicrotask(() => {
+					if (instanceCount === 0) {
+						styleElement?.remove();
+						globalStyleElement?.remove();
+					}
+				});
 			}
 			this.#unmountHooks.forEach(hook => hook());
 		}

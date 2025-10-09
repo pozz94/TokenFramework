@@ -86,37 +86,37 @@
                                 <strong>All conditions true</strong>
                                 <p>All three conditions are active</p>
                             </div>
-                        <else if=${() => condition1.v && condition2.v}>
+                        <:else if=${() => condition1.v && condition2.v}>
                             <div class="content-box primary" id="content-1-2-${instanceId}">
                                 <strong>Condition 1 AND 2</strong>
                                 <p>Both condition 1 and 2 are active</p>
                             </div>
-                        <else if=${() => condition1.v && condition3.v}>
+                        <:else if=${() => condition1.v && condition3.v}>
                             <div class="content-box secondary" id="content-1-3-${instanceId}">
                                 <strong>Condition 1 AND 3</strong>
                                 <p>Both condition 1 and 3 are active</p>
                             </div>
-                        <else if=${() => condition2.v && condition3.v}>
+                        <:else if=${() => condition2.v && condition3.v}>
                             <div class="content-box secondary" id="content-2-3-${instanceId}">
                                 <strong>Condition 2 AND 3</strong>
                                 <p>Both condition 2 and 3 are active</p>
                             </div>
-                        <else if=${condition1}>
+                        <:else if=${condition1}>
                             <div class="content-box tertiary" id="content-1-${instanceId}">
                                 <strong>Only Condition 1</strong>
                                 <p>Only condition 1 is active</p>
                             </div>
-                        <else if=${condition2}>
+                        <:else if=${condition2}>
                             <div class="content-box tertiary" id="content-2-${instanceId}">
                                 <strong>Only Condition 2</strong>
                                 <p>Only condition 2 is active</p>
                             </div>
-                        <else if=${condition3}>
+                        <:else if=${condition3}>
                             <div class="content-box tertiary" id="content-3-${instanceId}">
                                 <strong>Only Condition 3</strong>
                                 <p>Only condition 3 is active</p>
                             </div>
-                        <else>
+                        <:else>
                             <div class="content-box default" id="content-none-${instanceId}">
                                 <strong>No conditions</strong>
                                 <p>No conditions are active</p>

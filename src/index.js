@@ -1,6 +1,6 @@
 // This file is the entry point for the bundler
 // It re-exports only what we want users to access
-import { token, signal, computed, dirtyEffect } from './token.js';
+import { token, signal, computed, dirtyEffect } from './tokenNew.js';
 
 export {
   token as default,

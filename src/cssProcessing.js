@@ -32,11 +32,11 @@ export function scopeCSS(cssString) {
   // First pass: collect all keyframes names
   if (sheet && sheet.cssRules) {
     Array.from(sheet.cssRules).forEach(rule => {
-      if (rule.type === CSSRule.KEYFRAMES_RULE) {
+      if (rule.constructor.name === 'CSSKeyframesRule') {
         animationNames.add(rule.name);
-      } else if (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE) {
+      } else if (rule.constructor.name === 'CSSMediaRule' || rule.constructor.name === 'CSSSupportsRule') {
         Array.from(rule.cssRules).forEach(nestedRule => {
-          if (nestedRule.type === CSSRule.KEYFRAMES_RULE) {
+          if (nestedRule.constructor.name === 'CSSKeyframesRule') {
             animationNames.add(nestedRule.name);
           }
         });
@@ -45,13 +45,13 @@ export function scopeCSS(cssString) {
     
     // Second pass: scope all rules
     Array.from(sheet.cssRules).forEach(rule => {
-      if (rule.type === CSSRule.STYLE_RULE) {
+      if (rule.constructor.name === 'CSSStyleRule') {
         scopedRules.push(scopeStyleRule(rule, scopeClass, animationNames));
-      } else if (rule.type === CSSRule.MEDIA_RULE) {
+      } else if (rule.constructor.name === 'CSSMediaRule') {
         scopedRules.push(scopeMediaRule(rule, scopeClass, animationNames));
-      } else if (rule.type === CSSRule.SUPPORTS_RULE) {
+      } else if (rule.constructor.name === 'CSSSupportsRule') {
         scopedRules.push(scopeSupportsRule(rule, scopeClass, animationNames));
-      } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
+      } else if (rule.constructor.name === 'CSSKeyframesRule') {
         scopedRules.push(scopeKeyframesRule(rule, scopeClass));
       } else {
         // Pass through other rules
@@ -79,9 +79,9 @@ function scopeStyleRule(rule, scopeClass, animationNames) {
 function scopeMediaRule(mediaRule, scopeClass, animationNames) {
   const scopedRules = [];
   Array.from(mediaRule.cssRules).forEach(rule => {
-    if (rule.type === CSSRule.STYLE_RULE) {
+    if (rule.constructor.name === 'CSSStyleRule') {
       scopedRules.push(scopeStyleRule(rule, scopeClass, animationNames));
-    } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
+    } else if (rule.constructor.name === 'CSSKeyframesRule') {
       scopedRules.push(scopeKeyframesRule(rule, scopeClass));
     } else {
       scopedRules.push(rule.cssText);
@@ -94,9 +94,9 @@ function scopeMediaRule(mediaRule, scopeClass, animationNames) {
 function scopeSupportsRule(supportsRule, scopeClass, animationNames) {
   const scopedRules = [];
   Array.from(supportsRule.cssRules).forEach(rule => {
-    if (rule.type === CSSRule.STYLE_RULE) {
+    if (rule.constructor.name === 'CSSStyleRule') {
       scopedRules.push(scopeStyleRule(rule, scopeClass, animationNames));
-    } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
+    } else if (rule.constructor.name === 'CSSKeyframesRule') {
       scopedRules.push(scopeKeyframesRule(rule, scopeClass));
     } else {
       scopedRules.push(rule.cssText);

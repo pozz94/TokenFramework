@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Array Delete Nested Test</title>
+</head>
+<body>
+    <array-delete-nested-test></array-delete-nested-test>
+    
+    <script type="module">
+        import { token } from '../dist/token.js';
+
+        token('array-delete-nested-test', (props) => {
+            const items = signal([
+                { id: 1, text: 'Item 1' },
+                { id: 2, text: 'Item 2' }
+            ]);
+
+            const numLists = signal(2);
+
+            let nextId = 3;
+
+            const addItem = () => {
+                const newItem = { id: nextId++, text: `Item ${nextId - 1}` };
+                console.log('%c=== ADDING ITEM ===', 'color: green; font-weight: bold');
+                console.log('New item:', newItem);
+                
+                items.push(newItem);
+                
+                console.log('After push, items.v:', items.v);
+            };
+
+            const removeItem = (itemSignal) => {
+                console.log('%c=== REMOVE CLICKED ===', 'color: red; font-weight: bold');
+                console.log('Item signal:', itemSignal);
+                console.log('Item signal value:', itemSignal.v);
+                console.log('Item signal getSelf:', itemSignal.getSelf());
+                
+                // Try to find this item
+                console.log('%c--- Starting filter ---', 'color: orange');
+                const filtered = items.filter(i => {
+                    const isSame = i.isSame(itemSignal);
+                    console.log('  Comparing:', {
+                        i_getSelf: i.getSelf(),
+                        itemSignal_getSelf: itemSignal.getSelf(),
+                        i_value: i.v,
+                        itemSignal_value: itemSignal.v,
+                        sameNode: i.getSelf() === itemSignal.getSelf(),
+                        sameValue: i.v === itemSignal.v,
+                        isSame: isSame
+                    });
+                    return !isSame;
+                });
+                
+                console.log('Filtered result length:', filtered.length);
+                console.log('Original length:', items.v.length);
+                
+                // Update the array
+                items.v = filtered.map(i => i.v);
+                
+                console.log('After removal, items.v:', items.v);
+                console.log('---');
+            };
+
+            html`
+                <div>
+                    <h2>Array Delete Nested Test (Multiple Lists)</h2>
+                    <button onclick=${addItem}>Add Item</button>
+                    <label>Number of lists: 
+                        <input type="number" :value=${numLists} oninput=${e => numLists.v = parseInt(e.target.value)}>
+                    </label>
+                    
+                    <div each:listBlock=${() => Array(numLists.v)}>
+                        <h3>List </h3>
+                        <ul>
+                            <li each:item=${items}>
+                                <span>${() => item.text}</span>
+                                <button onclick=${() => removeItem(item)}>Remove</button>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <strong>Current items count: ${() => items.v.length}</strong>
+                    </div>
+                </div>
+            `;
+        });
+    </script>
+
+    <array-delete-nested-test render></array-delete-nested-test>
+</body>
+</html>

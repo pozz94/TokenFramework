@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pass-through Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .test-section {
+            margin: 2rem 0;
+            padding: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            border: 1px solid #007bff;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-weight: bold;
+            margin-left: 0.5rem;
+        }
+        .badge-passthrough {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .badge-readonly {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .badge-signal {
+            background: #cfe2ff;
+            color: #084298;
+            border: 1px solid #b6d4fe;
+        }
+        .badge-function {
+            background: #e7d4f7;
+            color: #6f42c1;
+            border: 1px solid #d3b8e8;
+        }
+        .badge-computed {
+            background: #f8d7da;
+            color: #842029;
+            border: 1px solid #f5c2c7;
+        }
+        .prop-info {
+            background: #e9ecef;
+            padding: 0.5rem;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+    </style>
+
+    <script type="module">
+        import token from '../src/tokenNew.js';
+
+        // ===== TEST 1: Signal Pass-through =====
+        token('passthrough-child', ({ counter }) => {
+            // Detect what type we received
+            const receivedType = signal('checking...');
+            const isActualSignal = signal(false);
+            
+            setTimeout(() => {
+                const hasMarker = counter?.[Symbol.for('__signal__')] === true;
+                isActualSignal.v = hasMarker || (typeof counter === 'object' && 'v' in counter && typeof counter.v !== 'undefined');
+                receivedType.v = isActualSignal.v ? 'Direct Signal Reference' : 'Computed/Wrapped';
+            }, 0);
+            
+            html`
+                <div>
+                    <div class="prop-info">
+                        <strong>Expected prop type:</strong> 
+                        <span class="badge badge-passthrough badge-signal">Direct Signal Reference</span>
+                    </div>
+                    <div class="prop-info">
+                        <strong>Received prop type:</strong> 
+                        <span class="badge badge-passthrough badge-signal">${receivedType}</span>
+                    </div>
+                    <p>Child sees counter value: <strong>${counter}</strong></p>
+                    <button onclick=${() => counter.v++}>
+                        Increment from Child (mutates parent signal)
+                    </button>
+                </div>
+            `;
+        });
+
+        token('passthrough-parent', () => {
+            const parentCounter = signal(0);
+            
+            html`
+                <div>
+                    <p>Parent counter: <strong>${parentCounter}</strong></p>
+                    <button onclick=${() => parentCounter.v++}>
+                        Increment from Parent
+                    </button>
+                    <hr>
+                    <passthrough-child :counter=${parentCounter}></passthrough-child>
+                    <div class="result">
+                        <p class="success">✓ Both parent and child share the same signal</p>
+                        <p class="success">✓ Child can mutate parent's state</p>
+                    </div>
+                </div>
+            `;
+        });
+
+        // ===== TEST 2: Read-only Computed =====
+        token('readonly-child', ({ counter }) => {
+            // Detect what type we received
+            const receivedType = signal('checking...');
+            const canWrite = signal(false);
+            
+            setTimeout(() => {
+                // Try to detect if it's read-only
+                const originalValue = counter.v;
+                let writeAttempted = false;
+                try {
+                    const testValue = originalValue + 999;
+                    counter.v = testValue;
+                    canWrite.v = (counter.v === testValue);
+                    counter.v = originalValue; // Restore
+                } catch (e) {
+                    canWrite.v = false;
+                }
+                receivedType.v = canWrite.v ? 'Writable Signal' : 'Read-only Computed';
+            }, 0);
+            
+            html`
+                <div>
+                    <div class="prop-info">
+                        <strong>Expected prop type:</strong> 
+                        <span class="badge badge-readonly badge-computed">Read-only Computed</span>
+                    </div>
+                    <div class="prop-info">
+                        <strong>Received prop type:</strong> 
+                        <span class="badge badge-readonly badge-computed">${receivedType}</span>
+                    </div>
+                    <p>Child sees counter value: <strong>${counter}</strong></p>
+                    <button onclick=${() => {
+                        try {
+                            counter.v++;
+                        } catch (e) {
+                            console.log('Expected: Cannot mutate read-only computed');
+                        }
+                    }}>
+                        Try to Increment from Child (should fail)
+                    </button>
+                </div>
+            `;
+        });
+
+        token('readonly-parent', () => {
+            const parentCounter = signal(0);
+            const mutationAttempted = signal(false);
+            
+            // Monitor console warnings
+            const originalWarn = console.warn;
+            console.warn = function(...args) {
+                if (args[0]?.includes('Cannot set read-only')) {
+                    mutationAttempted.v = true;
+                }
+                originalWarn.apply(console, args);
+            };
+            
+            html`
+                <div>
+                    <p>Parent counter: <strong>${parentCounter}</strong></p>
+                    <button onclick=${() => parentCounter.v++}>
+                        Increment from Parent
+                    </button>
+                    <hr>
+                    <readonly-child counter=${parentCounter}></readonly-child>
+                    <div class="result">
+                        <p class="success">✓ Child can read the value</p>
+                        <p class="success">✓ Child cannot mutate parent's state (read-only computed)</p>
+                        <p if=${mutationAttempted} class="success">✓ Mutation attempt was blocked!</p>
+                    </div>
+                </div>
+            `;
+        });
+
+        // ===== TEST 3: Function Pass-through =====
+        token('function-passthrough-child', ({ callback }) => {
+            const callCount = signal(0);
+            const receivedType = signal(typeof callback === 'function' ? 'Direct Function Reference' : 'Not a Function');
+            
+            html`
+                <div>
+                    <div class="prop-info">
+                        <strong>Expected prop type:</strong> 
+                        <span class="badge badge-passthrough badge-function">Direct Function Reference</span>
+                    </div>
+                    <div class="prop-info">
+                        <strong>Received prop type:</strong> 
+                        <span class="badge badge-passthrough badge-function">${receivedType}</span>
+                    </div>
+                    <p>Callback called <strong>${callCount}</strong> times from child</p>
+                    <button onclick=${() => {
+                        callback('Hello from child!');
+                        callCount.v++;
+                    }}>
+                        Call Parent Function (pass-through)
+                    </button>
+                </div>
+            `;
+        });
+
+        token('function-passthrough-parent', () => {
+            const lastMessage = signal('(none)');
+            const callCount = signal(0);
+            
+            const handleCallback = (message) => {
+                lastMessage.v = message;
+                callCount.v++;
+                console.log('Parent received:', message);
+            };
+            
+            html`
+                <div>
+                    <p>Parent received: <strong>${lastMessage}</strong></p>
+                    <p>Total calls: <strong>${callCount}</strong></p>
+                    <hr>
+                    <function-passthrough-child :callback=${handleCallback}></function-passthrough-child>
+                    <div class="result">
+                        <p class="success">✓ Child receives actual function reference</p>
+                        <p class="success">✓ Child can call parent's function directly</p>
+                    </div>
+                </div>
+            `;
+        });
+
+        // ===== TEST 4: Function Read-only =====
+        token('function-readonly-child', ({ getValue }) => {
+            const receivedType = signal('checking...');
+            
+            setTimeout(() => {
+                const isSignal = typeof getValue === 'object' && 'v' in getValue;
+                const isFunction = typeof getValue === 'function';
+                receivedType.v = isSignal ? 'Computed Signal (wraps function)' : (isFunction ? 'Direct Function' : 'Unknown');
+            }, 0);
+            
+            html`
+                <div>
+                    <div class="prop-info">
+                        <strong>Expected prop type:</strong> 
+                        <span class="badge badge-readonly badge-computed">Computed Signal (wraps function)</span>
+                    </div>
+                    <div class="prop-info">
+                        <strong>Received prop type:</strong> 
+                        <span class="badge badge-readonly badge-computed">${receivedType}</span>
+                    </div>
+                    <p>Child sees computed value: <strong>${getValue}</strong></p>
+                    <button onclick=${() => {
+                        console.log('Child read value:', getValue.v);
+                    }}>
+                        Read Computed Value
+                    </button>
+                    <p class="result">
+                        <small>getValue is a computed signal that calls the parent function on access</small>
+                    </p>
+                </div>
+            `;
+        });
+
+        token('function-readonly-parent', () => {
+            const counter = signal(0);
+            
+            const computedValue = () => {
+                console.log('Parent function called!');
+                return `Computed value: ${counter.v}`;
+            };
+            
+            html`
+                <div>
+                    <p>Parent counter: <strong>${counter}</strong></p>
+                    <button onclick=${() => counter.v++}>
+                        Increment Counter
+                    </button>
+                    <hr>
+                    <function-readonly-child getValue=${computedValue}></function-readonly-child>
+                    <div class="result">
+                        <p class="success">✓ Child receives computed(() => fn())</p>
+                        <p class="success">✓ Function is called reactively when accessed</p>
+                    </div>
+                </div>
+            `;
+        });
+    </script>
+</head>
+<body>
+    <h1>Pass-through vs Read-only Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Signal Pass-through with `:` prefix</h2>
+        <p>Child component receives the signal directly and can mutate it.</p>
+        <passthrough-parent render></passthrough-parent>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Read-only Computed without `:` prefix</h2>
+        <p>Child component receives a read-only computed value.</p>
+        <readonly-parent render></readonly-parent>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Function Pass-through with `:` prefix</h2>
+        <p>Child component receives the function directly and can call it.</p>
+        <function-passthrough-parent render></function-passthrough-parent>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Function Read-only without `:` prefix</h2>
+        <p>Child component receives a read-only computed that calls the function.</p>
+        <function-readonly-parent render></function-readonly-parent>
+    </div>
+</body>
+</html>

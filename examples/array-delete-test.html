@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Array Delete Test</title>
+</head>
+<body>
+    <array-delete-test></array-delete-test>
+    
+    <script type="module">
+        import { token } from '../dist/token.js';
+
+        token('array-delete-test', (props) => {
+            const items = signal([
+                { id: 1, text: 'Item 1' },
+                { id: 2, text: 'Item 2' }
+            ]);
+
+            let nextId = 3;
+
+            const addItem = () => {
+                const newItem = { id: nextId++, text: `Item ${nextId - 1}` };
+                console.log('%c=== ADDING ITEM ===', 'color: green; font-weight: bold');
+                console.log('New item:', newItem);
+                console.log('Current items.v:', items.v);
+                
+                items.push(newItem);
+                
+                console.log('After push, items.v:', items.v);
+                console.log('Array length:', items.v.length);
+            };
+
+            const removeItem = (itemSignal) => {
+                console.log('%c=== REMOVE CLICKED ===', 'color: red; font-weight: bold');
+                console.log('Removing item signal:', itemSignal);
+                console.log('Item signal value:', itemSignal.v);
+                console.log('Current items.v:', items.v);
+                console.log('Array length:', items.v.length);
+                
+                // Try to find this item
+                console.log('%c--- Starting filter ---', 'color: orange');
+                const filtered = items.filter(i => {
+                    console.log('  Comparing:', {
+                        i_value: i.v,
+                        itemSignal_value: itemSignal.v,
+                        isSame: i.isSame(itemSignal)
+                    });
+                    return !i.isSame(itemSignal);
+                });
+                
+                console.log('Filtered result:', filtered);
+                console.log('Filtered result values:', filtered.map(f => f.v));
+                
+                // Update the array
+                items.v = filtered.map(i => i.v);
+                
+                console.log('After removal, items.v:', items.v);
+                console.log('---');
+            };
+
+            html`
+                <div>
+                    <h2>Array Delete Test</h2>
+                    <button onclick=${addItem}>Add Item</button>
+                    
+                    <ul>
+                        <li each:item=${items}>
+                            <span>${() => item.text}</span>
+                            <button onclick=${() => removeItem(item)}>Remove</button>
+                        </li>
+                    </ul>
+                    
+                    <div>
+                        <strong>Current items count: ${() => items.v.length}</strong>
+                    </div>
+                </div>
+            `;
+        });
+    </script>
+
+    <array-delete-test render></array-delete-test>
+</body>
+</html>

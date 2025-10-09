@@ -80,8 +80,12 @@
 
         // Define a test component that tracks its lifecycle
         token('memory-test-item', ({ itemId = signal(0) }, context) => {
-            // Track creation
+            // Track creation - update parent signal directly to avoid batching issues
             metrics.created.v++;
+
+            effect(() => {
+                console.log(metrics.created.v, 'Component created with itemId:', itemId.v);
+            });
 
             // Use lifecycle hooks
             lifeCycle.onMount(() => {
@@ -98,13 +102,16 @@
             const itemLabel = signal(`Item ${itemId.v}_${Math.floor(Math.random() * 1000)}`);
 
             metrics.effectsCreated.v++;
+
             effect(() => {
                 // This effect depends on updateTrigger to allow forced reruns
                 console.log(`Item effect running: ${itemLabel.v}, trigger: ${updateTrigger.v}`);
 
                 // Track effect run/rerun
                 if (updateTrigger.v > 0) {
-                    untrack(() => metrics.effectsRerun.v++);
+                    untrack(() => {
+                        metrics.effectsRerun.v++;
+                    });
                 }
 
                 // Return a cleanup function
@@ -137,7 +144,7 @@
                 <div>
                     <h3>Container with list of items</h3>
                     <div id="items-container" each:item=${items}>
-                        <memory-test-item itemId=${() => item}></memory-test-item>
+                        <memory-test-item :itemId=${() => itemIndex}></memory-test-item>
                     </div>
                 </div>
             `;
@@ -183,12 +190,14 @@
 
         // Reset counters
         document.getElementById('reset-counts').addEventListener('click', () => {
-            metrics.created.v = 0;
-            metrics.mounted.v = 0;
-            metrics.unmounted.v = 0;
-            metrics.effectsCreated.v = 0;
-            metrics.effectsCleaned.v = 0;
-            metrics.effectsRerun.v = 0;
+            metrics.v = {
+                created: 0,
+                mounted: 0,
+                unmounted: 0,
+                effectsCreated: 0,
+                effectsCleaned: 0,
+                effectsRerun: 0
+            };
         });
     </script>
 </body>

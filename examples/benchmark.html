@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Performance Benchmark</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .test-result {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+        .test-result h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .test-result .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .metric {
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .metric-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .winner {
+            color: #28a745;
+        }
+        .loser {
+            color: #dc3545;
+        }
+        .comparison {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .progress {
+            margin: 20px 0;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏎️ Signal Performance Benchmark</h1>
+        
+        <div class="controls">
+            <button id="runAll">Run All Benchmarks</button>
+            <button id="runArray">Array Operations</button>
+            <button id="runNested">Nested Properties</button>
+            <button id="runEffects">Effects & Reactivity</button>
+            <button id="clear">Clear Results</button>
+        </div>
+
+        <div id="progress" class="progress"></div>
+        <div id="results" class="results"></div>
+    </div>
+
+    <script type="module">
+        import { signal as signal1, effect as effect1, computed as computed1 } from '../src/signal.js';
+        import { signal as signal2, effect as effect2, computed as computed2 } from '../src/signalNew2.js';
+        import { signal as signal3, effect as effect3, computed as computed3 } from '../src/signalNew3.js';
+
+        const resultsDiv = document.getElementById('results');
+        const progressDiv = document.getElementById('progress');
+        const benchmarkResults = [];
+
+        function formatTime(ms) {
+            if (ms < 1) return `${(ms * 1000).toFixed(2)}µs`;
+            if (ms < 1000) return `${ms.toFixed(2)}ms`;
+            return `${(ms / 1000).toFixed(2)}s`;
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
+
+        function showProgress(text) {
+            progressDiv.textContent = text;
+        }
+
+        function clearProgress() {
+            progressDiv.textContent = '';
+        }
+
+        function logBenchmarkSummary() {
+            const summary = benchmarkResults.map(({ testName, result1, result2, result3 }) => {
+                const times = [
+                    { name: 'signal', time: result1.avgTime },
+                    { name: 'signalNew2', time: result2.avgTime },
+                    { name: 'signalNew3', time: result3.avgTime }
+                ];
+                times.sort((a, b) => a.time - b.time);
+                const fastest = times[0].name;
+                
+                return {
+                    test: testName,
+                    signal_ms: parseFloat(result1.avgTime.toFixed(4)),
+                    signalNew2_ms: parseFloat(result2.avgTime.toFixed(4)),
+                    signalNew3_ms: parseFloat(result3.avgTime.toFixed(4)),
+                    winner: fastest,
+                    signal_vs_fastest: parseFloat((((result1.avgTime / times[0].time) - 1) * 100).toFixed(1)),
+                    signalNew2_vs_fastest: parseFloat((((result2.avgTime / times[0].time) - 1) * 100).toFixed(1)),
+                    signalNew3_vs_fastest: parseFloat((((result3.avgTime / times[0].time) - 1) * 100).toFixed(1))
+                };
+            });
+
+            console.log('%c📊 Benchmark Results Summary', 'font-size: 16px; font-weight: bold; color: #007bff;');
+            console.log(JSON.stringify(summary, null, 2));
+            
+            // Also log a simple table
+            console.table(summary);
+        }
+
+        async function benchmark(name, fn, iterations = 1000) {
+            // Warm up phase 1: Initial runs to trigger V8 compilation
+            for (let i = 0; i < 100; i++) fn();
+            
+            // Small delay to let V8 optimize
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            // Warm up phase 2: More runs to trigger TurboFan optimization
+            for (let i = 0; i < 100; i++) fn();
+            
+            // Collect garbage
+            if (window.gc) window.gc();
+            
+            // Small delay after GC
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            // Run multiple trials and take the median to reduce variance
+            const trials = 5;
+            const trialResults = [];
+            
+            for (let trial = 0; trial < trials; trial++) {
+                const start = performance.now();
+                for (let i = 0; i < iterations; i++) {
+                    fn();
+                }
+                const end = performance.now();
+                trialResults.push(end - start);
+                
+                // Small delay between trials
+                await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            
+            // Sort and take median
+            trialResults.sort((a, b) => a - b);
+            const medianTime = trialResults[Math.floor(trials / 2)];
+            
+            const avgTime = medianTime / iterations;
+            const opsPerSec = 1000 / avgTime;
+            
+            return {
+                name,
+                totalTime: medianTime,
+                avgTime,
+                opsPerSec,
+                iterations,
+                trials: trialResults
+            };
+        }
+
+        function displayResult(testName, result1, result2, result3) {
+            // Store for JSON summary
+            benchmarkResults.push({ testName, result1, result2, result3 });
+            
+            const div = document.createElement('div');
+            div.className = 'test-result';
+            
+            // Calculate variance for each result
+            const calcVariance = (trials) => {
+                const mean = trials.reduce((a, b) => a + b, 0) / trials.length;
+                const variance = trials.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / trials.length;
+                return Math.sqrt(variance);
+            };
+            
+            const variance1 = calcVariance(result1.trials);
+            const variance2 = calcVariance(result2.trials);
+            const variance3 = calcVariance(result3.trials);
+            const cv1 = ((variance1 / result1.totalTime) * 100).toFixed(1);
+            const cv2 = ((variance2 / result2.totalTime) * 100).toFixed(1);
+            const cv3 = ((variance3 / result3.totalTime) * 100).toFixed(1);
+            
+            // Find the winner (fastest)
+            const times = [
+                { name: 'signal', time: result1.avgTime, result: result1, cv: cv1 },
+                { name: 'signalNew2', time: result2.avgTime, result: result2, cv: cv2 },
+                { name: 'signalNew3', time: result3.avgTime, result: result3, cv: cv3 }
+            ];
+            times.sort((a, b) => a.time - b.time);
+            const fastest = times[0].name;
+            
+            // Calculate percentages relative to fastest
+            const getPercentage = (time) => {
+                if (time === times[0].time) return '(fastest)';
+                return `(${(((time / times[0].time) - 1) * 100).toFixed(1)}% slower)`;
+            };
+            
+            div.innerHTML = `
+                <h3>${testName}</h3>
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-label">signal.js</div>
+                        <div class="metric-value ${fastest === 'signal' ? 'winner' : 'loser'}">
+                            ${formatTime(result1.avgTime)}/op
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            ${formatNumber(Math.round(result1.opsPerSec))} ops/sec
+                        </div>
+                        <div style="font-size: 11px; color: #999;">
+                            variance: ±${cv1}% ${getPercentage(result1.avgTime)}
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">signalNew2.js</div>
+                        <div class="metric-value ${fastest === 'signalNew2' ? 'winner' : 'loser'}">
+                            ${formatTime(result2.avgTime)}/op
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            ${formatNumber(Math.round(result2.opsPerSec))} ops/sec
+                        </div>
+                        <div style="font-size: 11px; color: #999;">
+                            variance: ±${cv2}% ${getPercentage(result2.avgTime)}
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">signalNew3.js</div>
+                        <div class="metric-value ${fastest === 'signalNew3' ? 'winner' : 'loser'}">
+                            ${formatTime(result3.avgTime)}/op
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            ${formatNumber(Math.round(result3.opsPerSec))} ops/sec
+                        </div>
+                        <div style="font-size: 11px; color: #999;">
+                            variance: ±${cv3}% ${getPercentage(result3.avgTime)}
+                        </div>
+                    </div>
+                </div>
+                <div class="comparison">
+                    🏆 Winner: <strong>${fastest}</strong>
+                </div>
+            `;
+            
+            resultsDiv.appendChild(div);
+        }
+
+        // ARRAY BENCHMARKS
+        async function benchmarkArrayOperations() {
+            showProgress('Running array operations benchmarks...');
+            
+            // Test 1: Array push operations
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const push1 = await benchmark('array-push-signal', () => {
+                const s = signal1([1, 2, 3]);
+                for (let i = 0; i < 10; i++) {
+                    s.push(i);
+                }
+            }, 1000);
+            
+            const push2 = await benchmark('array-push-signalNew2', () => {
+                const s = signal2([1, 2, 3]);
+                for (let i = 0; i < 10; i++) {
+                    s.push(i);
+                }
+            }, 1000);
+            
+            const push3 = await benchmark('array-push-signalNew3', () => {
+                const s = signal3([1, 2, 3]);
+                for (let i = 0; i < 10; i++) {
+                    s.push(i);
+                }
+            }, 1000);
+            
+            displayResult('Array Push (10 items)', push1, push2, push3);
+
+            // Test 2: Array map
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const map1 = await benchmark('array-map-signal', () => {
+                const s = signal1([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.map(x => x.v * 2);
+            }, 1000);
+            
+            const map2 = await benchmark('array-map-signalNew2', () => {
+                const s = signal2([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.map(x => x.v * 2);
+            }, 1000);
+            
+            const map3 = await benchmark('array-map-signalNew3', () => {
+                const s = signal3([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.map(x => x.v * 2);
+            }, 1000);
+            
+            displayResult('Array Map (10 items)', map1, map2, map3);
+
+            // Test 3: Array filter
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const filter1 = await benchmark('array-filter-signal', () => {
+                const s = signal1([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            const filter2 = await benchmark('array-filter-signalNew2', () => {
+                const s = signal2([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            const filter3 = await benchmark('array-filter-signalNew3', () => {
+                const s = signal3([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+                const result = s.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            displayResult('Array Filter (10 items)', filter1, filter2, filter3);
+
+            // Test 4: Array access
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const access1 = await benchmark('array-access-signal', () => {
+                const s = signal1([1, 2, 3, 4, 5]);
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s[i].v;
+                }
+            }, 1000);
+            
+            const access2 = await benchmark('array-access-signalNew2', () => {
+                const s = signal2([1, 2, 3, 4, 5]);
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s[i].v;
+                }
+            }, 1000);
+            
+            const access3 = await benchmark('array-access-signalNew3', () => {
+                const s = signal3([1, 2, 3, 4, 5]);
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s[i].v;
+                }
+            }, 1000);
+            
+            displayResult('Array Index Access (5 items)', access1, access2, access3);
+
+            // Test 5: Array map with reused signal (cached property signals)
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const s1a = signal1([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const mapCached1 = await benchmark('array-map-cached-signal', () => {
+                const result = s1a.map(x => x.v * 2);
+            }, 1000);
+            
+            const s2a = signal2([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const mapCached2 = await benchmark('array-map-cached-signalNew2', () => {
+                const result = s2a.map(x => x.v * 2);
+            }, 1000);
+            
+            const s3a = signal3([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const mapCached3 = await benchmark('array-map-cached-signalNew3', () => {
+                const result = s3a.map(x => x.v * 2);
+            }, 1000);
+            
+            displayResult('Array Map - Cached (10 items, reused signal)', mapCached1, mapCached2, mapCached3);
+
+            // Test 6: Array filter with reused signal (cached property signals)
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const s1b = signal1([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const filterCached1 = await benchmark('array-filter-cached-signal', () => {
+                const result = s1b.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            const s2b = signal2([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const filterCached2 = await benchmark('array-filter-cached-signalNew2', () => {
+                const result = s2b.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            const s3b = signal3([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            const filterCached3 = await benchmark('array-filter-cached-signalNew3', () => {
+                const result = s3b.filter(x => x.v % 2 === 0);
+            }, 1000);
+            
+            displayResult('Array Filter - Cached (10 items, reused signal)', filterCached1, filterCached2, filterCached3);
+
+            // Test 7: Array access with reused signal (cached property signals)
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const s1c = signal1([1, 2, 3, 4, 5]);
+            const accessCached1 = await benchmark('array-access-cached-signal', () => {
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s1c[i].v;
+                }
+            }, 1000);
+            
+            const s2c = signal2([1, 2, 3, 4, 5]);
+            const accessCached2 = await benchmark('array-access-cached-signalNew2', () => {
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s2c[i].v;
+                }
+            }, 1000);
+            
+            const s3c = signal3([1, 2, 3, 4, 5]);
+            const accessCached3 = await benchmark('array-access-cached-signalNew3', () => {
+                let sum = 0;
+                for (let i = 0; i < 5; i++) {
+                    sum += s3c[i].v;
+                }
+            }, 1000);
+            
+            displayResult('Array Index Access - Cached (5 items, reused signal)', accessCached1, accessCached2, accessCached3);
+
+            clearProgress();
+        }
+
+        // NESTED PROPERTY BENCHMARKS
+        async function benchmarkNestedProperties() {
+            showProgress('Running nested property benchmarks...');
+            
+            // Test 1: Deep property access
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const deepAccess1 = await benchmark('deep-access-signal', () => {
+                const s = signal1({ a: { b: { c: { d: 42 } } } });
+                const value = s.a.b.c.d.v;
+            }, 1000);
+            
+            const deepAccess2 = await benchmark('deep-access-signalNew2', () => {
+                const s = signal2({ a: { b: { c: { d: 42 } } } });
+                const value = s.a.b.c.d.v;
+            }, 1000);
+            
+            const deepAccess3 = await benchmark('deep-access-signalNew3', () => {
+                const s = signal3({ a: { b: { c: { d: 42 } } } });
+                const value = s.a.b.c.d.v;
+            }, 1000);
+            
+            displayResult('Deep Property Access (4 levels)', deepAccess1, deepAccess2, deepAccess3);
+
+            // Test 2: Nested object update
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const nestedUpdate1 = await benchmark('nested-update-signal', () => {
+                const s = signal1({ user: { name: 'John', age: 30 } });
+                s.user.name.v = 'Jane';
+                s.user.age.v = 31;
+            }, 1000);
+            
+            const nestedUpdate2 = await benchmark('nested-update-signalNew2', () => {
+                const s = signal2({ user: { name: 'John', age: 30 } });
+                s.user.name.v = 'Jane';
+                s.user.age.v = 31;
+            }, 1000);
+            
+            const nestedUpdate3 = await benchmark('nested-update-signalNew3', () => {
+                const s = signal3({ user: { name: 'John', age: 30 } });
+                s.user.name.v = 'Jane';
+                s.user.age.v = 31;
+            }, 1000);
+            
+            displayResult('Nested Property Update (2 props)', nestedUpdate1, nestedUpdate2, nestedUpdate3);
+
+            // Test 3: Array of objects property access
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const arrayObjAccess1 = await benchmark('array-obj-access-signal', () => {
+                const s = signal1([
+                    { id: 1, name: 'Item 1' },
+                    { id: 2, name: 'Item 2' },
+                    { id: 3, name: 'Item 3' }
+                ]);
+                let names = [];
+                for (let i = 0; i < 3; i++) {
+                    names.push(s[i].name.v);
+                }
+            }, 1000);
+            
+            const arrayObjAccess2 = await benchmark('array-obj-access-signalNew2', () => {
+                const s = signal2([
+                    { id: 1, name: 'Item 1' },
+                    { id: 2, name: 'Item 2' },
+                    { id: 3, name: 'Item 3' }
+                ]);
+                let names = [];
+                for (let i = 0; i < 3; i++) {
+                    names.push(s[i].name.v);
+                }
+            }, 1000);
+            
+            const arrayObjAccess3 = await benchmark('array-obj-access-signalNew3', () => {
+                const s = signal3([
+                    { id: 1, name: 'Item 1' },
+                    { id: 2, name: 'Item 2' },
+                    { id: 3, name: 'Item 3' }
+                ]);
+                let names = [];
+                for (let i = 0; i < 3; i++) {
+                    names.push(s[i].name.v);
+                }
+            }, 1000);
+            
+            displayResult('Array of Objects Property Access', arrayObjAccess1, arrayObjAccess2, arrayObjAccess3);
+
+            // Test 4: Large object creation
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const largeObj1 = await benchmark('large-obj-signal', () => {
+                const obj = {};
+                for (let i = 0; i < 50; i++) {
+                    obj[`key${i}`] = i;
+                }
+                const s = signal1(obj);
+            }, 10000);
+            
+            const largeObj2 = await benchmark('large-obj-signalNew2', () => {
+                const obj = {};
+                for (let i = 0; i < 50; i++) {
+                    obj[`key${i}`] = i;
+                }
+                const s = signal2(obj);
+            }, 10000);
+            
+            const largeObj3 = await benchmark('large-obj-signalNew3', () => {
+                const obj = {};
+                for (let i = 0; i < 50; i++) {
+                    obj[`key${i}`] = i;
+                }
+                const s = signal3(obj);
+            }, 10000);
+            
+            displayResult('Large Object Creation (50 props)', largeObj1, largeObj2, largeObj3);
+
+            clearProgress();
+        }
+
+        // EFFECTS & REACTIVITY BENCHMARKS
+        async function benchmarkEffects() {
+            showProgress('Running effects & reactivity benchmarks...');
+            
+            // Test 1: Simple effect
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const effectResult1 = await benchmark('simple-effect-signal', () => {
+                const s = signal1(0);
+                let count = 0;
+                const cleanup = effect1(() => {
+                    count = s.v;
+                });
+                s.v = 1;
+                s.v = 2;
+                cleanup();
+            }, 10000);
+            
+            const effectResult2 = await benchmark('simple-effect-signalNew2', () => {
+                const s = signal2(0);
+                let count = 0;
+                const cleanup = effect2(() => {
+                    count = s.v;
+                });
+                s.v = 1;
+                s.v = 2;
+                cleanup();
+            }, 10000);
+            
+            const effectResult3 = await benchmark('simple-effect-signalNew3', () => {
+                const s = signal3(0);
+                let count = 0;
+                const cleanup = effect3(() => {
+                    count = s.v;
+                });
+                s.v = 1;
+                s.v = 2;
+                cleanup();
+            }, 10000);
+            
+            displayResult('Simple Effect (3 updates)', effectResult1, effectResult2, effectResult3);
+
+            // Test 2: Computed value
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const computed1Test = await benchmark('computed-signal', () => {
+                const s = signal1(5);
+                const doubled = computed1(() => s.v * 2);
+                const value = doubled.v;
+                s.v = 10;
+                const value2 = doubled.v;
+            }, 10000);
+            
+            const computed2Test = await benchmark('computed-signalNew2', () => {
+                const s = signal2(5);
+                const doubled = computed2(() => s.v * 2);
+                const value = doubled.v;
+                s.v = 10;
+                const value2 = doubled.v;
+            }, 10000);
+            
+            const computed3Test = await benchmark('computed-signalNew3', () => {
+                const s = signal3(5);
+                const doubled = computed3(() => s.v * 2);
+                const value = doubled.v;
+                s.v = 10;
+                const value2 = doubled.v;
+            }, 10000);
+            
+            displayResult('Computed Signal (2 reads)', computed1Test, computed2Test, computed3Test);
+
+            // Test 3: Multiple effects
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const multiEffectResult1 = await benchmark('multi-effect-signal', () => {
+                const s = signal1(0);
+                const cleanups = [];
+                for (let i = 0; i < 5; i++) {
+                    cleanups.push(effect1(() => {
+                        const val = s.v;
+                    }));
+                }
+                s.v = 1;
+                cleanups.forEach(c => c());
+            }, 10000);
+            
+            const multiEffectResult2 = await benchmark('multi-effect-signalNew2', () => {
+                const s = signal2(0);
+                const cleanups = [];
+                for (let i = 0; i < 5; i++) {
+                    cleanups.push(effect2(() => {
+                        const val = s.v;
+                    }));
+                }
+                s.v = 1;
+                cleanups.forEach(c => c());
+            }, 10000);
+            
+            const multiEffectResult3 = await benchmark('multi-effect-signalNew3', () => {
+                const s = signal3(0);
+                const cleanups = [];
+                for (let i = 0; i < 5; i++) {
+                    cleanups.push(effect3(() => {
+                        const val = s.v;
+                    }));
+                }
+                s.v = 1;
+                cleanups.forEach(c => c());
+            }, 10000);
+            
+            displayResult('Multiple Effects (5 effects, 1 update)', multiEffectResult1, multiEffectResult2, multiEffectResult3);
+
+            clearProgress();
+        }
+
+        // Event handlers
+        document.getElementById('runAll').addEventListener('click', async () => {
+            resultsDiv.innerHTML = '';
+            benchmarkResults.length = 0;
+            await benchmarkArrayOperations();
+            await benchmarkNestedProperties();
+            await benchmarkEffects();
+            logBenchmarkSummary();
+            showProgress('✅ All benchmarks complete! Check console for JSON results.');
+            setTimeout(clearProgress, 3000);
+        });
+
+        document.getElementById('runArray').addEventListener('click', async () => {
+            resultsDiv.innerHTML = '';
+            benchmarkResults.length = 0;
+            await benchmarkArrayOperations();
+            logBenchmarkSummary();
+            showProgress('✅ Array benchmarks complete! Check console for JSON results.');
+            setTimeout(clearProgress, 3000);
+        });
+
+        document.getElementById('runNested').addEventListener('click', async () => {
+            resultsDiv.innerHTML = '';
+            benchmarkResults.length = 0;
+            await benchmarkNestedProperties();
+            logBenchmarkSummary();
+            showProgress('✅ Nested property benchmarks complete! Check console for JSON results.');
+            setTimeout(clearProgress, 3000);
+        });
+
+        document.getElementById('runEffects').addEventListener('click', async () => {
+            resultsDiv.innerHTML = '';
+            benchmarkResults.length = 0;
+            await benchmarkEffects();
+            logBenchmarkSummary();
+            showProgress('✅ Effects benchmarks complete! Check console for JSON results.');
+            setTimeout(clearProgress, 3000);
+        });
+
+        document.getElementById('clear').addEventListener('click', () => {
+            resultsDiv.innerHTML = '';
+            benchmarkResults.length = 0;
+            clearProgress();
+        });
+
+        // Show instructions
+        showProgress('Click a button above to start benchmarking 📊');
+    </script>
+</body>
+</html>

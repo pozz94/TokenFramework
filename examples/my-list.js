@@ -7,10 +7,6 @@ token("my-list", ({ }) => {
         { text: "Do homework", completed: false }
     ]);
 
-    effect(() => {
-        console.log(list.map(item => item));
-    });
-
     const addTask = () => list.push({ text: "New task", completed: false });
 
     const number = signal(3);

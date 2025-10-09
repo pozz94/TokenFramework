@@ -7,11 +7,13 @@
     <title>Document</title>
     <script src="https://cdn.twind.style/"></script>
     <script type="module">
+        import token from '../dist/token.js';
+        globalThis.token = token;
+
         import './conditional-block.js';
         import './home-page.js';
         import './my-list.js';
-
-        import token from '../dist/token.js';
+        import './t-table.js';
 
         token('test-fake-properties', ()=> {
             const testSignal = signal();
@@ -67,6 +69,127 @@
                 </style>
             `;
         });
+
+        token('test-table', ()=> {
+            html`
+                <t-table class="table-auto border-collapse border border-gray-400">
+                    <t-head>
+                        <t-r>
+                            <th class="border border-gray-300 px-4 py-2"><span>Header 1</span></th>
+                            <th class="border border-gray-300 px-4 py-2"><span>Header 2</span></th>
+                            <th class="border border-gray-300 px-4 py-2"><span>Header 3</span></th>
+                        </t-r>
+                    </t-head>
+                    <t-body>
+                        <t-r>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 1</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 2</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 3</span></td>
+                        </t-r>
+                        <t-r class="bg-gray-100">
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 1</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 2</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 3</span></td>
+                        </t-r>
+                        <t-r>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 1</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 2</span></td>
+                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 3</span></td>
+                        </t-r>
+                        <test-custom-row></test-custom-row>
+                    </t-body>
+                </t-table>
+            `;
+        });
+
+        token('test-custom-row', ()=> {
+            html`
+                <tr>
+                    <th class="border border-gray-300 px-4 py-2">Special 1</th>
+                    <th class="border border-gray-300 px-4 py-2">Special 2</th>
+                    <th class="border border-gray-300 px-4 py-2">Special 3</th>
+                </tr>
+            `;
+        });
+
+        token('test-table-2', ()=> {
+            html`
+                <div role="table" class="table-auto border-collapse border border-gray-400">
+                    <div role="rowgroup">
+                        <div role="row">
+                            <div role="columnheader" class="border border-gray-300 px-4 py-2">Header 1</div>
+                            <div role="columnheader" class="border border-gray-300 px-4 py-2">Header 2</div>
+                            <div role="columnheader" class="border border-gray-300 px-4 py-2">Header 3</div>
+                        </div>
+                    </div>
+                    <div role="rowgroup">
+                        <div role="row">
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 1, Cell 1</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 1, Cell 2</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 1, Cell 3</div>
+                        </div>
+                        <div role="row" class="bg-gray-100">
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 2, Cell 1</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 2, Cell 2</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 2, Cell 3</div>
+                        </div>
+                        <div role="row">
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 3, Cell 1</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 3, Cell 2</div>
+                            <div role="cell" class="border border-gray-300 px-4 py-2">Row 3, Cell 3</div>
+                        </div>
+                        <test-custom-row-2/>
+                    </div>
+                </table>
+                <style>
+                    [role="table"] {
+                        /* default html table styling */
+                        display: table;
+                    }
+                    [role="rowgroup"] {
+                        display: table-row-group;
+                    }
+                    [role="row"] {
+                        display: table-row;
+                    }
+                    [role="columnheader"], [role="cell"] {
+                        display: table-cell;
+                    }
+                    [role="columnheader"] {
+                        font-weight: bold;
+                        text-align: center;
+                    }
+                </style>
+            `;
+        });
+
+        token('test-custom-row-2', ()=> {
+            html`
+                <div role="row">
+                    <div role="columnheader" class="border border-gray-300 px-4 py-2">Special 1</div>
+                    <div role="columnheader" class="border border-gray-300 px-4 py-2">Special 2</div>
+                    <div role="columnheader" class="border border-gray-300 px-4 py-2">Special 3</div>
+                </div>
+                <style>
+                    [role="table"] {
+                        display: table;
+                    }
+                    [role="rowgroup"] {
+                        display: table-row-group;
+                    }
+                    [role="row"] {
+                        display: table-row;
+                    }
+                    [role="columnheader"], [role="cell"] {
+                        display: table-cell;
+                    }
+                    [role="columnheader"] {
+                        font-weight: bold;
+                        text-align: center;
+                    }
+                </style>
+            `;
+        });
     </script>
 </head>
 
@@ -77,6 +200,8 @@
         <conditional-block render></conditional-block>
         <conditional-block render></conditional-block>
         <home-page render></home-page>
+        <test-table render></test-table>
+        <test-table-2 render></test-table-2>
     </div>
 </body>
 

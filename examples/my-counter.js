@@ -1,7 +1,6 @@
 import { token, signal } from '../dist/token.js';
 import MyTest from './my-test.js';
 import './my-slot.js';
-import { effect } from '../src/signal.js';
 
 const testGlobalSignal = signal('Hello World');
 const testGlobalChange = () => {
@@ -13,6 +12,10 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 	const derived = computed(() => count.v * 2);
 	const color = signal('text-black');
 	const input = signal('Hello World');
+
+	effect(() => {
+		console.log('count', count.v);
+	});
 
 	//const URL = computed(() => `https://jsonplaceholder.typicode.com/todos/${count.v}`);
 	const APIData = computed.fromAPI(url`https://jsonplaceholder.typicode.com/todos/${count}`);
@@ -35,6 +38,8 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 	});
 
 	const decrement = () => {
+		// print out the call stack to see where this function was called from
+		console.trace();
 		count.v--;
 	};
 
@@ -103,25 +108,25 @@ token("my-counter", ({ width = signal("150px"), prop2 = signal("Hello World") })
 				</div>
 			</div>
 
-			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" func=${decrement} prop1=${input} :prop2=${width}/>
+			<${MyTest} class="block mt-4 p-4 bg-gray-50 border border-gray-200 rounded" :func=${decrement} prop1=${input} :prop2=${width}/>
 
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p await=${APIData} class="font-medium">
-					asdf ${()=>APIData.data.title}
-				<loading>
+					asdf ${APIData.data.title}
+				<:loading>
 					loading...
-				<error>
-					error.
+				<:error>
+					error: ${APIData.error}
 				</p>
 			</div>
 				
 			<div class="mt-6 p-4 bg-gray-50 rounded border border-gray-200">
 				<p if=${APIData.loading} class="font-medium">
 					loading...
-				<else if=${APIData.error}>
-					error. ${APIData.error}
-				<else>
-					asdf ${()=>APIData.data.title}
+				<:else if=${APIData.error}>
+					error: ${APIData.error}
+				<:else>
+					asdf ${APIData.data.title}
 				</p>
 			</div>
 
