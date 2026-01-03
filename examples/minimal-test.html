@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="p-8">
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">Minimal Framework Test</h1>
+        <test-text render></test-text>
+        <test-conditional render></test-conditional>
+        <test-list render></test-list>
+    </div>
+
+    <script type="module">
+        import token, { signal } from '../dist/token.js';
+
+        // Simple component with text interpolation
+        token('test-text', () => {
+            const count = signal(0);
+
+            html`
+                <div class="p-4 border rounded">
+                    <h2 class="text-xl font-bold">Text Interpolation Test</h2>
+                    <p>Count: ${count}</p>
+                    <button onclick=${() => count.v++} class="mt-2 px-4 py-2 bg-blue-500 text-white rounded">
+                        Increment
+                    </button>
+                </div>
+            `;
+        });
+
+        // Simple component with conditional
+        token('test-conditional', () => {
+            const show = signal(true);
+
+            html`
+                <div class="p-4 border rounded mt-4">
+                    <h2 class="text-xl font-bold">Conditional Test</h2>
+                    <button onclick=${() => show.v = !show.v} class="mt-2 px-4 py-2 bg-green-500 text-white rounded">
+                        Toggle (currently: ${() => show.v ? 'shown' : 'hidden'})
+                    </button>
+                    <w if=${show}>
+                        <p class="mt-2 text-green-600">This should show when toggle is true!</p>
+                    </w>
+                </div>
+            `;
+        });
+
+        // Simple component with list
+        token('test-list', () => {
+            const items = signal([
+                { name: 'Item 1' },
+                { name: 'Item 2' },
+                { name: 'Item 3' }
+            ]);
+
+            html`
+                <div class="p-4 border rounded mt-4">
+                    <h2 class="text-xl font-bold">List Test</h2>
+                    <p>${() => items.v.length} items</p>
+                    <button onclick=${() => items.v = [...items.v, { name: 'Item ' + (items.v.length + 1) }]}
+                            class="mt-2 px-4 py-2 bg-purple-500 text-white rounded">
+                        Add Item
+                    </button>
+                    <ul each:item=${items} class="mt-2 space-y-1">
+                        <li class="p-2 bg-gray-100 rounded">${() => item.name}</li>
+                    </ul>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>

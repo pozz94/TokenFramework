@@ -216,15 +216,23 @@ function signal(initialValue) {
 			}
 			
 			// Handle core signal methods
-			if (prop === 'v') { 
-				//target.subscribe(); 
-				return target.v; 
+			if (prop === 'v') {
+				//target.subscribe();
+				return target.v;
 			}
 			if (prop === 'onFirstSubscriber') return target.onFirstSubscriber.bind(target);
 			if (prop === 'onLastSubscriberRemoved') return target.onLastSubscriberRemoved.bind(target);
 			if (prop === 'getValue') return target.getValue.bind(target);
 			if (prop === 'isSame') return (other) => target.isSame(other);
 			if (prop === 'getSelf') return () => target;
+
+			// Timing modifiers - available on ALL signals
+			if (prop === 'debounce') {
+				return (delay) => debounce(proxySignal, delay);
+			}
+			if (prop === 'throttle') {
+				return (delay) => throttle(proxySignal, delay);
+			}
 
 			const internalValue = target.getValue();
 			
@@ -295,6 +303,148 @@ function signal(initialValue) {
 // Fast O(1) signal detection using symbol marker
 const isSignal = (obj) => obj?.[SIGNAL_MARKER] === true;
 
+/**
+ * Debounces a signal or array of signals
+ * @param {SignalNode|SignalNode[]} signalOrArray - Single signal or array of signals to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {SignalNode|SignalNode[]} Debounced signal(s)
+ */
+function debounce(signalOrArray, delay) {
+	// Handle array of signals
+	if (Array.isArray(signalOrArray)) {
+		const trigger = signal(0);
+		let timeoutId;
+
+		// Watch all signals and debounce together
+		effect(() => {
+			signalOrArray.forEach(sig => isSignal(sig) ? sig.v : sig);
+
+			clearTimeout(timeoutId);
+			timeoutId = setTimeout(() => {
+				trigger.v = trigger.v + 1;
+			}, delay);
+		});
+
+		// Return array of debounced signals
+		return signalOrArray.map(sig => {
+			return computed(() => {
+				trigger.v; // Subscribe to debounced trigger
+				return isSignal(sig) ? sig.v : sig;
+			}, (value) => {
+				// Write directly to source signal
+				if (isSignal(sig)) {
+					sig.v = value;
+				}
+			});
+		});
+	}
+
+	// Handle single signal
+	const trigger = signal(0);
+	let timeoutId;
+
+	effect(() => {
+		signalOrArray.v;
+
+		clearTimeout(timeoutId);
+		timeoutId = setTimeout(() => {
+			trigger.v = trigger.v + 1;
+		}, delay);
+	});
+
+	return computed(() => {
+		trigger.v; // Subscribe to debounced trigger
+		return signalOrArray.v;
+	}, (value) => {
+		// Write directly to source signal
+		signalOrArray.v = value;
+	});
+}
+
+/**
+ * Throttles a signal or array of signals
+ * @param {SignalNode|SignalNode[]} signalOrArray - Single signal or array of signals to throttle
+ * @param {number} delay - Minimum time between updates in milliseconds
+ * @returns {SignalNode|SignalNode[]} Throttled signal(s)
+ */
+function throttle(signalOrArray, delay) {
+	// Handle array of signals
+	if (Array.isArray(signalOrArray)) {
+		const trigger = signal(0);
+		let intervalId;
+		let timeoutId;
+
+		// Watch all signals and throttle together
+		effect(() => {
+			signalOrArray.forEach(sig => isSignal(sig) ? sig.v : sig);
+
+			if (!intervalId) {
+				// First change triggers immediately
+				trigger.v = trigger.v + 1;
+
+				// Set up interval for subsequent changes
+				intervalId = setInterval(() => {
+					trigger.v = trigger.v + 1;
+				}, delay);
+			}
+
+			// Clear interval after delay of no changes
+			clearTimeout(timeoutId);
+			timeoutId = setTimeout(() => {
+				clearInterval(intervalId);
+				intervalId = null;
+			}, delay);
+		});
+
+		// Return array of throttled signals
+		return signalOrArray.map(sig => {
+			return computed(() => {
+				trigger.v; // Subscribe to throttled trigger
+				return isSignal(sig) ? sig.v : sig;
+			}, (value) => {
+				// Write directly to source signal
+				if (isSignal(sig)) {
+					sig.v = value;
+				}
+			});
+		});
+	}
+
+	// Handle single signal
+	const trigger = signal(0);
+	let intervalId;
+	let timeoutId;
+
+	effect(() => {
+		signalOrArray.v;
+
+		if (!intervalId) {
+			// First change triggers immediately
+			trigger.v = trigger.v + 1;
+
+			// Set up interval for subsequent changes
+			intervalId = setInterval(() => {
+				trigger.v = trigger.v + 1;
+			}, delay);
+		}
+
+		// Clear interval after delay of no changes
+		clearTimeout(timeoutId);
+		timeoutId = setTimeout(() => {
+			clearInterval(intervalId);
+			intervalId = null;
+		}, delay);
+	});
+
+	return computed(() => {
+		trigger.v; // Subscribe to throttled trigger
+		return signalOrArray.v;
+	}, (value) => {
+		// Write directly to source signal
+		signalOrArray.v = value;
+	});
+}
+
 // Computed Values Implementation
 function computed(getFnOrSignal, set = () => {
 		console.warn('Cannot set read-only computed signal');
@@ -303,7 +453,15 @@ function computed(getFnOrSignal, set = () => {
 	}) {
 	// If already a signal, return as-is
 	if (isSignal(getFnOrSignal)) return getFnOrSignal;
-	
+
+	// Detect if the function is async
+	const isAsyncFn = typeof getFnOrSignal === 'function' && getFnOrSignal.constructor.name === 'AsyncFunction';
+
+	// If it's an async function, return a promise-based signal
+	if (isAsyncFn) {
+		return computed.async(getFnOrSignal, set);
+	}
+
 	const s = signal(undefined);
 	let sourceSignal;
 	let cleanup = null;
@@ -355,68 +513,197 @@ function computed(getFnOrSignal, set = () => {
 	});
 }
 
-const defaultFetcher = async (source) => {
-	const sourceValue = isSignal(source) ? source.v : source;
-	const { url, method = 'GET', body, headers = {}, signal } = typeof sourceValue === 'string' ? { url: sourceValue } : sourceValue;
-	const response = await fetch(url, {
-		method,
-		headers: {
-			'Content-Type': 'application/json',
-			...headers
-		},
-		body: body ? JSON.stringify(body) : undefined,
-		signal
+/**
+ * Creates an async computed signal that returns a promise
+ * @param {Function} getFn - Async function that receives an AbortSignal and returns a promise
+ * @param {Function} set - Optional setter function
+ * @returns {SignalNode} A signal that holds a promise which resolves to the computed value
+ */
+computed.async = function(getFn, set) {
+	const s = signal(null);
+	let cleanup = null;
+	let controller = null;
+
+	const initialize = () => {
+		if (!cleanup) {
+			cleanup = effect(() => {
+				// Abort previous operation if still running
+				if (controller) {
+					controller.abort();
+				}
+
+				controller = new AbortController();
+				const localController = controller;
+
+				// Create and store the promise
+				const promise = getFn(localController.signal);
+				s.v = promise;
+
+				// Return cleanup function to abort on next run or disposal
+				return () => {
+					if (localController) {
+						localController.abort();
+					}
+				};
+			});
+		}
+	};
+
+	s.onFirstSubscriber(() => {
+		initialize();
 	});
 
-	if (!response.ok) {
-		throw new Error(`HTTP error! status: ${response.status}`);
+	s.onLastSubscriberRemoved(() => {
+		if (controller) {
+			controller.abort();
+			controller = null;
+		}
+		if (cleanup) {
+			cleanup();
+			cleanup = null;
+		}
+	});
+
+	return new Proxy(s, {
+		get(target, prop) {
+			if (prop === 'v' && !cleanup) {
+				initialize();
+			}
+			return target[prop];
+		},
+		set(target, prop, value) {
+			if (prop === 'v') {
+				if (set) {
+					set(value);
+				} else {
+					console.warn('Cannot set read-only async computed signal');
+				}
+				return true;
+			}
+			return Reflect.set(target, prop, value);
+		}
+	});
+};
+
+/**
+ * Creates a modifier that unpacks promise-based signals into {loading, error, data} structure
+ * Can be used as: computed.unpack(promiseSignal) or computed.unpack().fetch(url)
+ * @param {SignalNode} [promiseSignal] - Optional signal that holds promises
+ * @returns {SignalNode|Object} Either an unpacked signal or a builder object
+ */
+computed.unpack = function(promiseSignal) {
+	// If called with a signal, unpack it directly
+	if (promiseSignal && isSignal(promiseSignal)) {
+		const s = signal({ loading: false, error: undefined, data: undefined });
+		let cleanup = null;
+		let currentPromise = null;
+
+		const initialize = () => {
+			if (!cleanup) {
+				cleanup = effect(async () => {
+					const promise = promiseSignal.v;
+
+					// If no promise yet, do nothing
+					if (!promise) {
+						return;
+					}
+
+					// Track which promise we're handling
+					currentPromise = promise;
+
+					s.v = { loading: true, error: undefined, data: s.v.data };
+
+					try {
+						const value = await promise;
+
+						// Only update if this is still the current promise
+						if (currentPromise === promise) {
+							s.v = { loading: false, error: undefined, data: value };
+						}
+					} catch (error) {
+						// Only update error if this is still the current promise and not an abort
+						if (currentPromise === promise && error.name !== 'AbortError') {
+							s.v = { loading: false, error: error, data: undefined };
+						}
+					}
+				});
+			}
+		};
+
+		s.onFirstSubscriber(() => {
+			initialize();
+		});
+
+		s.onLastSubscriberRemoved(() => {
+			if (cleanup) {
+				cleanup();
+				cleanup = null;
+				currentPromise = null;
+			}
+		});
+
+		return new Proxy(s, {
+			get(target, prop) {
+				if (prop === 'v' && !cleanup) {
+					initialize();
+				}
+				return target[prop];
+			},
+			set(target, prop, value) {
+				console.warn('Cannot set unpacked signal');
+				return true;
+			}
+		});
 	}
-	return response.json();
+
+	// If called without arguments, return a builder
+	return {
+		fetcher: (url, options = {}) => {
+			const promiseSignal = computed.fetcher(url, options);
+			return computed.unpack(promiseSignal);
+		}
+	};
 };
 
 /**
  * Creates a resource signal that fetches data asynchronously.
- * 
- * @param {any} source - The source or configuration for fetching data.
- * @param {function} [fetcher=defaultFetcher] - Optional custom fetcher function.
- * @returns {SignalNode<{loading: boolean, error: any, data: any}> & {fetch: function(): void}} 
- *   A signal with properties: loading, error, data, and a fetch() method to manually trigger a fetch.
+ * Returns a promise-based signal. Use .unpack() to get {loading, error, data} structure.
+ * Use .debounce()/.throttle() for timing control.
+ *
+ * @param {any} url - The URL to fetch (can be a signal or static value)
+ * @param {any} [options={}] - Fetch options (can be a signal or static value)
+ * @returns {SignalNode<Promise> & {refresh: function(): void, unpack: function()}}
+ *   A promise-based signal with refresh() and unpack() methods
  */
-computed.fromAPI = (source, fetcher = defaultFetcher) => {
-	const result = signal({ loading: false, error: undefined, data: undefined });
+computed.fetcher = (url, options = {}) => {
+	const refreshTrigger = signal(0);
 
-	let controller;
+	const fetcherSignal = computed(async (signal) => {
+		refreshTrigger.v; // Subscribe to refresh trigger
 
-	let fetchFunc = () => {
-		controller = new AbortController();
-		const localController = controller;
+		const urlValue = isSignal(url) ? url.v : url;
+		const optionsValue = isSignal(options) ? options.v : options;
 
-		result.v = { loading: true, error: undefined, data: undefined };
-
-		fetcher(source)
-			.then(value => { if (!localController.signal.aborted && controller === localController) { result.v = { loading: false, data: value, error: undefined }; } })
-			.catch(err => { if (!localController.signal.aborted && controller === localController && err.name !== 'AbortError') { result.v = { loading: false, error: err, data: undefined }; } });
-	};
-
-	let disposeEffect;
-
-	//result.onFirstSubscriber(() => {
-	disposeEffect = effect(() => {
-		fetchFunc();
-
-		// Cleanup function that aborts the request
-		return () => controller?.abort();
+		// Add abort signal to fetch options
+		return fetch(urlValue, { ...optionsValue, signal });
 	});
-	//});
 
-	result.onLastSubscriberRemoved(() => { if (disposeEffect) disposeEffect() });
-
-	//result.fetch = () => { controller?.abort(); fetchFunc(); };
-	const resultProxy = new Proxy(result, {
+	// Add refresh and unpack methods
+	const resultProxy = new Proxy(fetcherSignal, {
 		get(target, prop) {
-			if (prop === 'fetch') {
-				return () => { controller?.abort(); fetchFunc(); };
+			if (prop === 'refresh') {
+				return () => {
+					refreshTrigger.v = refreshTrigger.v + 1;
+				};
 			}
+
+			// UNPACK modifier: Convert promise to {loading, error, data}
+			if (prop === 'unpack') {
+				return () => {
+					return computed.unpack(target);
+				};
+			}
+
 			return target[prop];
 		}
 	});
@@ -427,14 +714,36 @@ computed.fromAPI = (source, fetcher = defaultFetcher) => {
 computed.fromEvent = (target, eventName) => {
 	const result = signal(null);
 	let disposeEffect;
+	let handler;
+
+	const setupListener = (effectCreator = null) => {
+		if (effectCreator) {
+			// Debounced or throttled version
+			const tempSignal = signal(null);
+			handler = (event) => tempSignal.v = event;
+			target.addEventListener(eventName, handler);
+
+			const innerEffect = effectCreator(() => {
+				result.v = tempSignal.v;
+			});
+
+			disposeEffect = () => {
+				target.removeEventListener(eventName, handler);
+				innerEffect();
+			};
+		} else {
+			// Immediate version
+			handler = (event) => result.v = event;
+			target.addEventListener(eventName, handler);
+
+			disposeEffect = () => {
+				target.removeEventListener(eventName, handler);
+			};
+		}
+	};
 
 	result.onFirstSubscriber(() => {
-		const handler = (event) => result.v = event;
-		target.addEventListener(eventName, handler);
-
-		disposeEffect = () => {
-			target.removeEventListener(eventName, handler);
-		};
+		setupListener();
 	});
 
 	result.onLastSubscriberRemoved(() => {
@@ -442,7 +751,35 @@ computed.fromEvent = (target, eventName) => {
 		target = null;
 	});
 
-	return result;
+	const resultProxy = new Proxy(result, {
+		get(proxyTarget, prop) {
+			if (prop === 'debounced') {
+				return (delay) => {
+					// Clean up existing listener
+					if (disposeEffect) disposeEffect();
+
+					// Re-setup with debounced effect
+					setupListener((fn) => effect.debounced(fn, delay));
+
+					return resultProxy;
+				};
+			}
+			if (prop === 'throttled') {
+				return (delay) => {
+					// Clean up existing listener
+					if (disposeEffect) disposeEffect();
+
+					// Re-setup with throttled effect
+					setupListener((fn) => effect.throttled(fn, delay));
+
+					return resultProxy;
+				};
+			}
+			return proxyTarget[prop];
+		}
+	});
+
+	return resultProxy;
 };
 
 /**
@@ -454,8 +791,17 @@ computed.fromEvent = (target, eventName) => {
  * The cleanup function is used to remove all dependencies and subscribers from the effect.
  * Effects must be disposed of after use outside components using the cleanup function.
  * When sync is true, the effect runs immediately when dependencies change, useful for counter increments.
+ * Automatically detects async functions and enables async tracking.
  */
 function effect(fn, sync = false) {
+	// Detect if the function is async
+	const isAsyncFn = fn.constructor.name === 'AsyncFunction';
+
+	// If it's an async function, delegate to effect.async
+	if (isAsyncFn) {
+		return effect.async(fn, sync);
+	}
+
 	let cleanupFromFn = undefined;
 
 	const effectFn = () => {
@@ -483,7 +829,7 @@ function effect(fn, sync = false) {
 
 	effectFn.dependenciesCleanups = new Set();
 	effectFn.dependencies = new Set();
-	
+
 	// Mark synchronous effects
 	if (sync) {
 		effectFn.isSync = true;
@@ -584,6 +930,136 @@ function untrack(fn) {
 	} finally {
 		currentEffect = previousEffect;
 	}
+}
+
+// Patch Promise prototype to automatically track effect context
+const originalThen = Promise.prototype.then;
+const originalCatch = Promise.prototype.catch;
+const originalFinally = Promise.prototype.finally;
+
+Promise.prototype.then = function(onFulfilled, onRejected) {
+	const effectContext = currentEffect;
+
+	const wrappedOnFulfilled = onFulfilled ? function(value) {
+		currentEffect = effectContext;
+		return onFulfilled(value);
+	} : undefined;
+
+	const wrappedOnRejected = onRejected ? function(error) {
+		currentEffect = effectContext;
+		return onRejected(error);
+	} : undefined;
+
+	return originalThen.call(this, wrappedOnFulfilled, wrappedOnRejected);
+};
+
+Promise.prototype.catch = function(onRejected) {
+	const effectContext = currentEffect;
+
+	const wrappedOnRejected = onRejected ? function(error) {
+		currentEffect = effectContext;
+		return onRejected(error);
+	} : undefined;
+
+	return originalCatch.call(this, wrappedOnRejected);
+};
+
+Promise.prototype.finally = function(onFinally) {
+	const effectContext = currentEffect;
+
+	const wrappedOnFinally = onFinally ? function() {
+		currentEffect = effectContext;
+		return onFinally();
+	} : undefined;
+
+	return originalFinally.call(this, wrappedOnFinally);
+};
+
+/**
+ * Creates an async effect that can track signal dependencies across async boundaries
+ * Automatically tracks all promises via the patched Promise.prototype
+ * @param {Function} fn - Async function that receives an AbortSignal to be executed as an effect
+ * @param {boolean} sync - if true, effect runs synchronously without batching (default: false)
+ * @returns {Function} cleanup function
+ */
+effect.async = function(fn, sync = false) {
+	let cleanupFromFn = undefined;
+	let controller = null;
+
+	const effectFn = () => {
+		try {
+			// Abort previous operation if still running
+			if (controller) {
+				controller.abort();
+			}
+
+			// Run any existing cleanup from previous run
+			if (cleanupFromFn && typeof cleanupFromFn === 'function') {
+				cleanupFromFn();
+				cleanupFromFn = undefined;
+			}
+
+			controller = new AbortController();
+			const localController = controller;
+
+			cleanupDependencies(effectFn);
+			const previousEffect = currentEffect;
+			currentEffect = effectFn;
+
+			try {
+				const result = wrapInContext(fn, { effect, untrack })(localController.signal);
+
+				// If the result is a promise, handle cleanup from it
+				if (result && typeof result.then === 'function') {
+					result.then(
+						(cleanup) => {
+							if (cleanup && typeof cleanup === 'function') {
+								cleanupFromFn = cleanup;
+							}
+						},
+						(error) => {
+							// Ignore AbortError
+							if (error.name !== 'AbortError') {
+								console.error('Async effect execution failed:', error);
+							}
+						}
+					);
+				} else if (result && typeof result === 'function') {
+					cleanupFromFn = result;
+				}
+			} catch (error) {
+				console.error('Effect execution failed:', error);
+			} finally {
+				currentEffect = previousEffect;
+			}
+		} catch (error) {
+			console.error('Error in effect:', error);
+		}
+	};
+
+	effectFn.dependenciesCleanups = new Set();
+	effectFn.dependencies = new Set();
+
+	if (sync) {
+		effectFn.isSync = true;
+	}
+
+	const cleanup = () => {
+		if (controller) {
+			controller.abort();
+			controller = null;
+		}
+		if (cleanupFromFn) {
+			cleanupFromFn();
+		}
+		cleanupDependencies(effectFn);
+		if (!sync) {
+			pendingEffects.delete(effectFn);
+		}
+	};
+
+	effectFn();
+	return cleanup;
 };
 
 // Utility Functions
@@ -635,7 +1111,6 @@ function flushEffects() {
 function cleanupDependencies(effectFn) {
 	effectFn.dependenciesCleanups.forEach(cleanup => cleanup());
 	effectFn.dependenciesCleanups.clear();
-	effectFn.dependencies.clear();
 }
 
-export { signal, computed, effect, isSignal };
+export { signal, signal as state, computed, effect, isSignal, debounce, throttle, untrack };

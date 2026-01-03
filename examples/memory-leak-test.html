@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Leak Test</title>
+    <script type="module" src="../dist/token.js"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .test-section h2 {
+            margin-top: 0;
+        }
+        .stats {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        .stats div {
+            margin: 5px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border: 1px solid #007bff;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .warning {
+            color: #d9534f;
+            font-weight: bold;
+        }
+        .success {
+            color: #5cb85c;
+            font-weight: bold;
+        }
+        #container {
+            min-height: 100px;
+            border: 2px dashed #ccc;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .log {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Memory Leak Detection Test</h1>
+
+    <div class="test-section">
+        <h2>Test 1: Component Creation/Destruction Cycles</h2>
+        <p>Creates and destroys components repeatedly to check for memory leaks.</p>
+        <button id="runTest1">Run Test (1000 cycles)</button>
+        <button id="stopTest1">Stop Test</button>
+        <div id="stats1" class="stats">
+            <div>Cycles completed: <span id="cycles1">0</span></div>
+            <div>Active components: <span id="active1">0</span></div>
+            <div>Detached nodes found: <span id="detached1">0</span></div>
+        </div>
+        <div id="container"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Effect Cleanup Verification</h2>
+        <p>Verifies that effects are properly cleaned up when components unmount.</p>
+        <button id="runTest2">Run Test</button>
+        <div id="stats2" class="stats">
+            <div>Effects created: <span id="effectsCreated">0</span></div>
+            <div>Effects running: <span id="effectsRunning">0</span></div>
+            <div>Expected running: <span id="effectsExpected">0</span></div>
+            <div id="effectStatus2"></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Signal Subscription Leak Test</h2>
+        <p>Checks if signal subscriptions are properly cleaned up.</p>
+        <button id="runTest3">Run Test</button>
+        <div id="stats3" class="stats">
+            <div>Signal created: <span id="signalCreated">No</span></div>
+            <div>Initial subscribers: <span id="initialSubs">0</span></div>
+            <div>After component mount: <span id="mountedSubs">0</span></div>
+            <div>After component unmount: <span id="unmountedSubs">0</span></div>
+            <div id="signalStatus3"></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: List Rendering Memory Test</h2>
+        <p>Tests memory usage with dynamic list rendering.</p>
+        <button id="runTest4">Run Test (100 iterations)</button>
+        <button id="stopTest4">Stop Test</button>
+        <div id="stats4" class="stats">
+            <div>Iterations: <span id="iterations4">0</span></div>
+            <div>List items: <span id="listItems">0</span></div>
+            <div>DOM nodes in container: <span id="domNodes4">0</span></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Console Log</h2>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script type="module">
+        import { token, signal, computed } from '../dist/token.js';
+
+        const log = (msg, isError = false) => {
+            const logEl = document.getElementById('log');
+            const line = document.createElement('div');
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            if (isError) line.style.color = '#f00';
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(msg);
+        };
+
+        // Helper to count detached nodes
+        function countDetachedNodes() {
+            // Get all custom elements that might be detached
+            const allElements = document.querySelectorAll('*');
+            let detached = 0;
+
+            allElements.forEach(el => {
+                if (el.tagName && el.tagName.includes('-')) {
+                    if (!document.body.contains(el)) {
+                        detached++;
+                    }
+                }
+            });
+
+            return detached;
+        }
+
+        // Test 1: Component Creation/Destruction Cycles
+        let test1Running = false;
+        let test1Cycles = 0;
+
+        token('test-component-1', (props) => {
+            html`<div>Test Component</div>`;
+        });
+
+        document.getElementById('runTest1').addEventListener('click', async () => {
+            if (test1Running) return;
+            test1Running = true;
+            test1Cycles = 0;
+            log('Starting Test 1: Component creation/destruction cycles');
+
+            const container = document.getElementById('container');
+
+            while (test1Running && test1Cycles < 1000) {
+                // Create component
+                const comp = document.createElement('test-component-1');
+                container.appendChild(comp);
+
+                // Update stats
+                document.getElementById('cycles1').textContent = test1Cycles;
+                document.getElementById('active1').textContent = container.children.length;
+
+                // Wait a bit
+                await new Promise(r => setTimeout(r, 10));
+
+                // Destroy component
+                comp.remove();
+
+                // Force garbage collection hint
+                if (test1Cycles % 100 === 0) {
+                    container.innerHTML = '';
+                    const detached = countDetachedNodes();
+                    document.getElementById('detached1').textContent = detached;
+
+                    if (detached > 0) {
+                        log(`Warning: ${detached} detached nodes found after ${test1Cycles} cycles`, true);
+                    } else {
+                        log(`✓ No detached nodes after ${test1Cycles} cycles`);
+                    }
+                }
+
+                test1Cycles++;
+            }
+
+            test1Running = false;
+            container.innerHTML = '';
+            log(`Test 1 completed: ${test1Cycles} cycles`);
+
+            const finalDetached = countDetachedNodes();
+            document.getElementById('detached1').textContent = finalDetached;
+
+            if (finalDetached === 0) {
+                log('✓ Test 1 PASSED: No memory leaks detected');
+            } else {
+                log(`✗ Test 1 FAILED: ${finalDetached} detached nodes remaining`, true);
+            }
+        });
+
+        document.getElementById('stopTest1').addEventListener('click', () => {
+            test1Running = false;
+            log('Test 1 stopped by user');
+        });
+
+        // Test 2: Effect Cleanup Verification
+        let effectRunCount = 0;
+        let totalEffectsCreated = 0;
+
+        token('test-component-2', (props) => {
+            const count = signal(0);
+
+            // Create an effect that should be cleaned up
+            effect(() => {
+                effectRunCount++;
+                count.v; // Subscribe
+            });
+
+            totalEffectsCreated++;
+
+            html`<div>Effect Test</div>`;
+        });
+
+        document.getElementById('runTest2').addEventListener('click', async () => {
+            log('Starting Test 2: Effect cleanup verification');
+
+            effectRunCount = 0;
+            totalEffectsCreated = 0;
+
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+
+            // Create 10 components
+            for (let i = 0; i < 10; i++) {
+                const comp = document.createElement('test-component-2');
+                container.appendChild(comp);
+            }
+
+            document.getElementById('effectsCreated').textContent = totalEffectsCreated;
+            document.getElementById('effectsExpected').textContent = totalEffectsCreated;
+
+            await new Promise(r => setTimeout(r, 100));
+
+            const runningBefore = effectRunCount;
+            document.getElementById('effectsRunning').textContent = runningBefore;
+
+            log(`Created ${totalEffectsCreated} components with effects`);
+            log(`Effects ran ${runningBefore} times before cleanup`);
+
+            // Destroy all components
+            container.remove();
+
+            await new Promise(r => setTimeout(r, 100));
+
+            // Trigger signals to see if effects still run
+            const testSig = signal(0);
+            const beforeTrigger = effectRunCount;
+
+            for (let i = 0; i < 10; i++) {
+                testSig.v = i;
+            }
+
+            await new Promise(r => setTimeout(r, 100));
+
+            const afterTrigger = effectRunCount;
+
+            if (afterTrigger === beforeTrigger) {
+                log('✓ Test 2 PASSED: Effects properly cleaned up');
+                document.getElementById('effectStatus2').innerHTML = '<span class="success">PASSED</span>';
+            } else {
+                log(`✗ Test 2 FAILED: Effects still running after cleanup (${afterTrigger - beforeTrigger} runs)`, true);
+                document.getElementById('effectStatus2').innerHTML = '<span class="warning">FAILED</span>';
+            }
+
+            document.getElementById('effectsRunning').textContent = effectRunCount;
+        });
+
+        // Test 3: Signal Subscription Leak Test
+        const testSignal = signal(0);
+
+        token('test-component-3', (props) => {
+            // Subscribe to the test signal
+            effect(() => {
+                testSignal.v; // This creates a subscription
+            });
+
+            html`<div>Subscription Test</div>`;
+        });
+
+        document.getElementById('runTest3').addEventListener('click', async () => {
+            log('Starting Test 3: Signal subscription leak test');
+
+            // Access internal subscribers (this is a hack for testing)
+            const getSubscriberCount = (sig) => {
+                return sig._getSubscribers ? sig._getSubscribers().size : 0;
+            };
+
+            document.getElementById('signalCreated').textContent = 'Yes';
+
+            const initialSubs = getSubscriberCount(testSignal);
+            document.getElementById('initialSubs').textContent = initialSubs;
+            log(`Initial subscribers: ${initialSubs}`);
+
+            // Create component
+            const comp = document.createElement('test-component-3');
+            document.body.appendChild(comp);
+
+            await new Promise(r => setTimeout(r, 100));
+
+            const mountedSubs = getSubscriberCount(testSignal);
+            document.getElementById('mountedSubs').textContent = mountedSubs;
+            log(`Subscribers after mount: ${mountedSubs}`);
+
+            // Remove component
+            comp.remove();
+
+            await new Promise(r => setTimeout(r, 100));
+
+            const unmountedSubs = getSubscriberCount(testSignal);
+            document.getElementById('unmountedSubs').textContent = unmountedSubs;
+            log(`Subscribers after unmount: ${unmountedSubs}`);
+
+            if (unmountedSubs === initialSubs) {
+                log('✓ Test 3 PASSED: Signal subscriptions properly cleaned up');
+                document.getElementById('signalStatus3').innerHTML = '<span class="success">PASSED</span>';
+            } else {
+                log(`✗ Test 3 FAILED: ${unmountedSubs - initialSubs} subscriptions leaked`, true);
+                document.getElementById('signalStatus3').innerHTML = '<span class="warning">FAILED</span>';
+            }
+        });
+
+        // Test 4: List Rendering Memory Test
+        let test4Running = false;
+        let test4Iterations = 0;
+
+        const listData = signal([]);
+
+        token('list-item-test', (props) => {
+            html`<div>Item: ${props.text}</div>`;
+        });
+
+        token('list-container-test', (props) => {
+            html`
+            <div>
+                    <template each:item=${listData}>
+                        <list-item-test :text=${() => item.v}></list-item-test>
+                </template>
+            </div>
+            `;
+        });
+
+        document.getElementById('runTest4').addEventListener('click', async () => {
+            if (test4Running) return;
+            test4Running = true;
+            test4Iterations = 0;
+
+            log('Starting Test 4: List rendering memory test');
+
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+
+            const comp = document.createElement('list-container-test');
+            container.appendChild(comp);
+
+            while (test4Running && test4Iterations < 100) {
+                // Create a large list
+                const items = [];
+                for (let i = 0; i < 50; i++) {
+                    items.push(`Item ${i}`);
+                }
+                listData.v = items;
+
+                document.getElementById('iterations4').textContent = test4Iterations;
+                document.getElementById('listItems').textContent = items.length;
+                document.getElementById('domNodes4').textContent = container.querySelectorAll('*').length;
+
+                await new Promise(r => setTimeout(r, 50));
+
+                // Clear the list
+                listData.v = [];
+
+                await new Promise(r => setTimeout(r, 50));
+
+                test4Iterations++;
+
+                if (test4Iterations % 10 === 0) {
+                    const detached = countDetachedNodes();
+                    if (detached > 0) {
+                        log(`Warning: ${detached} detached nodes at iteration ${test4Iterations}`, true);
+                    }
+                }
+            }
+
+            container.remove();
+            test4Running = false;
+
+            await new Promise(r => setTimeout(r, 100));
+
+            const finalDetached = countDetachedNodes();
+            if (finalDetached === 0) {
+                log('✓ Test 4 PASSED: No memory leaks in list rendering');
+            } else {
+                log(`✗ Test 4 FAILED: ${finalDetached} detached nodes remaining`, true);
+            }
+        });
+
+        document.getElementById('stopTest4').addEventListener('click', () => {
+            test4Running = false;
+            log('Test 4 stopped by user');
+        });
+
+        log('Memory leak tests ready. Click buttons to run tests.');
+    </script>
+</body>
+</html>

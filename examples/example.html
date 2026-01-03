@@ -8,8 +8,6 @@
     <script src="https://cdn.twind.style/"></script>
     <script type="module">
         import token from '../dist/token.js';
-        globalThis.token = token;
-
         import './conditional-block.js';
         import './home-page.js';
         import './my-list.js';
@@ -75,26 +73,26 @@
                 <t-table class="table-auto border-collapse border border-gray-400">
                     <t-head>
                         <t-r>
-                            <th class="border border-gray-300 px-4 py-2"><span>Header 1</span></th>
-                            <th class="border border-gray-300 px-4 py-2"><span>Header 2</span></th>
-                            <th class="border border-gray-300 px-4 py-2"><span>Header 3</span></th>
+                            <t-h class="border border-gray-300 px-4 py-2"><span>Header 1</span></t-h>
+                            <t-h class="border border-gray-300 px-4 py-2"><span>Header 2</span></t-h>
+                            <t-h class="border border-gray-300 px-4 py-2"><span>Header 3</span></t-h>
                         </t-r>
                     </t-head>
                     <t-body>
                         <t-r>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 1</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 2</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 3</span></td>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 1</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 2</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 1, Cell 3</span></t-d>
                         </t-r>
                         <t-r class="bg-gray-100">
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 1</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 2</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 3</span></td>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 1</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 2</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 2, Cell 3</span></t-d>
                         </t-r>
                         <t-r>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 1</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 2</span></td>
-                            <td class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 3</span></td>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 1</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 2</span></t-d>
+                            <t-d class="border border-gray-300 px-4 py-2"><span>Row 3, Cell 3</span></t-d>
                         </t-r>
                         <test-custom-row></test-custom-row>
                     </t-body>

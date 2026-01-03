@@ -1,4 +1,4 @@
-import { signal, computed, effect, isSignal } from './signalNew3.js';
+import { signal, computed, effect, isSignal } from './signalNew4.js';
 //import { signal, computed, effect, isSignal } from './signal.js';
 import { scopeCSS } from './cssProcessing.js';
 import { wrapInContext } from './utils.js';

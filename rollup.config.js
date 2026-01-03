@@ -56,25 +56,11 @@ function versionComment() {
       const commentString = `//TokenJS v${version}\n`;
       const modifiedCode = `${commentString}${code}`;
       
-      // If sourcemaps aren't enabled, just return the code
-      if (!options.sourcemap) {
-        return modifiedCode;
-      }
-      
-      // For sourcemaps, we need to handle it differently
-      const linesToAdd = commentString.split('\n').length - 1;
-      
-      // Create a proper sourcemap with adjusted mappings
-      const map = { ...chunk.map };
-      
-      // Shift all mappings down by the number of added lines
-      if (map && map.mappings) {
-        map.mappings = ';'.repeat(linesToAdd) + map.mappings;
-      }
-      
+      // Return null for map to let Rollup handle sourcemap generation
+      // This prevents the "Broken sourcemap" warning
       return {
         code: modifiedCode,
-        map
+        map: null
       };
     }
   };
